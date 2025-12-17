@@ -1,6 +1,7 @@
 import json
 import math
 
+from knox.auth import TokenAuthentication
 from rest_framework import status
 from rest_framework.test import APITestCase, APIRequestFactory, force_authenticate
 
@@ -19,7 +20,7 @@ from flowback.user.services import user_create, user_create_verify, user_delete
 from flowback.user.tests.factories import UserFactory
 from flowback.user.views.home import UserHomeFeedAPI
 from flowback.user.views.user import UserDeleteAPI, UserGetChatChannelAPI, UserUpdateApi, UserChatInviteAPI, UserGetApi, \
-    UserNotificationSubscribeAPI, UserCreateApi
+    UserNotificationSubscribeAPI, UserCreateApi, UserLoginAPI
 from flowback.user.models import OnboardUser
 
 
@@ -28,6 +29,25 @@ class UserTest(APITestCase):
         (self.user_one,
          self.user_two,
          self.user_three) = (UserFactory() for x in range(3))
+
+    def test_user_login(self):
+        data = dict(username='test', password="test123")
+        user = User.objects.create(username=data['username'])
+        user.set_password(data['password'])
+        user.save()
+
+        self.assertTrue(user.username, data['username'])
+        self.assertTrue(user.check_password(data['password']))
+
+        response = generate_request(UserLoginAPI, data=data)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        factory = APIRequestFactory()
+        view = UserGetApi.as_view()
+        request = factory.post('', headers=dict(Authorization=f'Token {response.data}'))
+        TokenAuthentication
+        print(request.headers)
+        print(view(request))
 
     def test_user_delete(self):
         user = self.user_one
@@ -57,7 +77,6 @@ class UserTest(APITestCase):
             generate_request(UserCreateApi, data=dict(email="test@example.com"))
             onboard_user = user_create(email="test@example.com")  # Test twice for unique conflicts
 
-
             print(onboard_user.verification_code, OnboardUser.objects.get(id=onboard_user.id).verification_code)
 
             user = user_create_verify(username="test_user",
@@ -71,15 +90,15 @@ class UserTest(APITestCase):
     def test_user_create_api_with_existing_onboard_user(self):
         """Test UserCreateApi when an OnboardUser with the same email already exists"""
         test_email = "duplicate@example.com"
-        
+
         # First, create an OnboardUser directly
         OnboardUser.objects.create(email=test_email)
         self.assertTrue(OnboardUser.objects.filter(email=test_email).exists())
-        
+
         # Then create another user with the same email through the API
         response = generate_request(UserCreateApi, data=dict(email=test_email))
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        
+
         # Verify that the one OnboardUser exists
         onboard_users = OnboardUser.objects.filter(email=test_email)
         self.assertEqual(onboard_users.count(), 1)
@@ -87,14 +106,14 @@ class UserTest(APITestCase):
     def test_user_create_api_with_existing_user_email(self):
         """Test UserCreateApi when a User with the same email already exists"""
         test_email = "existing_user@example.com"
-        
+
         # Create a full User
         UserFactory(email=test_email)
-        
+
         # Then create an OnboardUser with the same email through the API
         response = generate_request(UserCreateApi, data=dict(email=test_email))
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        
+
         # Verify no OnboardUser was created
         self.assertFalse(OnboardUser.objects.filter(email=test_email).exists())
 
@@ -140,7 +159,6 @@ class UserTest(APITestCase):
         self.assertNotIn('bio', response.data.keys())
         self.assertIn('username', response.data.keys())
 
-
     def test_user_home_feed_order(self):
         group_user, group_user_three = GroupUserFactory.create_batch(size=2, group__public=False)
         group_user_two = GroupUserFactory(group__public=True)
@@ -156,7 +174,7 @@ class UserTest(APITestCase):
         GroupThreadFactory.create_batch(size=5, created_by=group_user_two, public=True)
 
         polls = PollFactory.create_batch(size=5, created_by=group_user_three)
-        poll_with_comments = polls[0] # Testing total comments aggregate
+        poll_with_comments = polls[0]  # Testing total comments aggregate
         CommentFactory.create_batch(size=5,
                                     author=group_user_three.user,
                                     comment_section=poll_with_comments.comment_section)
@@ -182,7 +200,7 @@ class UserTest(APITestCase):
 
             if response.data['results'][x]['related_model'] == "thread":
                 self.assertTrue(GroupThread.objects.filter(created_by__group=response.data['results'][x]['group_id'],
-                                                    id=response.data['results'][x]['id']).exists())
+                                                           id=response.data['results'][x]['id']).exists())
 
         self.assertEqual(response.status_code, 200, response.data)
         self.assertEqual(response.data['count'], 15)
@@ -218,7 +236,8 @@ class UserTest(APITestCase):
         # Public testing
 
         ## User
-        response = generate_request(api=UserHomeFeedAPI, user=group_user_private.user, data=dict(order_by='pinned,created_at_asc'))
+        response = generate_request(api=UserHomeFeedAPI, user=group_user_private.user,
+                                    data=dict(order_by='pinned,created_at_asc'))
         self.assertTrue(any([i['pinned'] for i in response.data['results']]),
                         [i['pinned'] for i in response.data['results']])  # Placeholder test for pinned
         self.assertTrue(all([i['pinned'] for i in response.data['results'][:4]]),
@@ -258,8 +277,6 @@ class UserTest(APITestCase):
         response = generate_request(api=UserHomeFeedAPI, user=group_user_public_workgroupuser.group_user.user)
         self.assertEqual(response.status_code, 200, response.data)
         self.assertEqual(response.data['count'], 15)
-
-
 
     def test_user_get_chat_channel(self):
         participants = UserFactory.create_batch(25)

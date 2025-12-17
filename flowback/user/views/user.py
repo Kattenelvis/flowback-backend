@@ -1,10 +1,14 @@
+import knox.models
 from django.contrib.auth import logout
+from django.core.exceptions import ValidationError
 from drf_spectacular.utils import extend_schema
 from phonenumber_field.serializerfields import PhoneNumberField
 from rest_framework import serializers, status
 from rest_framework.authtoken.models import Token
 from rest_framework.permissions import AllowAny
-from tutorial.quickstart.serializers import UserSerializer
+from knox.views import LoginView as KnoxLoginView
+from rest_framework.authtoken.serializers import AuthTokenSerializer
+from knox.models import AuthToken
 
 from backend.settings import DEBUG_REGISTER_BYPASS_EMAIL_VERIFICATION
 from flowback.common.pagination import LimitOffsetPagination, get_paginated_response
@@ -12,13 +16,41 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from flowback.notification.views import NotificationSubscribeTemplateAPI
-from flowback.user.models import OnboardUser, User
+from flowback.user.models import User
 from flowback.user.selectors import get_user, user_list, user_chat_invite_list
-from flowback.user.serializers import BasicUserSerializer
 from flowback.user.services import (user_create, user_create_verify, user_forgot_password,
                                     user_forgot_password_verify, user_update, user_delete, user_get_chat_channel,
                                     user_chat_invite, user_chat_channel_leave, user_chat_channel_update,
                                     user_notification_subscribe, user_bookmark_create, user_bookmark_delete)
+
+
+class UserLoginAPI(KnoxLoginView):
+    permission_classes = (AllowAny,)
+
+    class InputSerializer(serializers.Serializer):
+        username = serializers.CharField()
+        password = serializers.CharField()
+
+        def validate(self, attrs):
+            username = attrs.get('username')
+            password = attrs.get('password')
+
+            user = User.objects.get(username=username)
+            check_password = user.check_password(password)
+
+            if not check_password:
+                raise ValidationError('Password is incorrect')
+
+            return attrs
+
+    def post(self, request, format=None):
+        serializer = self.InputSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        token = AuthToken.objects.create(
+            user=User.objects.get(username=serializer.data['username']))[0].token_key
+        print(token)
+        return Response(data=token,
+                        status=status.HTTP_200_OK)
 
 
 class UserCreateApi(APIView):
