@@ -48,9 +48,6 @@ class UserTest(APITestCase):
         response = view(request)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
-    def test_user_logout(self):
-
-
     def test_user_delete(self):
         user = self.user_one
 

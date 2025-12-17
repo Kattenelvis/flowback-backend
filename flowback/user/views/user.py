@@ -46,9 +46,7 @@ class UserLoginAPI(KnoxLoginView):
     def post(self, request, format=None):
         serializer = self.InputSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        token = AuthToken.objects.create(
-            user=User.objects.get(username=serializer.data['username']))[1]
-        print(token)
+        token = AuthToken.objects.create(user=User.objects.get(username=serializer.data['username']))[1]
         return Response(data=token,
                         status=status.HTTP_200_OK)
 
@@ -85,8 +83,8 @@ class UserCreateVerifyApi(APIView):
         serializer.is_valid(raise_exception=True)
 
         user = user_create_verify(**serializer.validated_data)
-        token, created = Token.objects.get_or_create(user=user)
-        return Response(status=status.HTTP_201_CREATED, data={'token': token.key})
+        token, created = AuthToken.objects.create(user=user)[1]
+        return Response(status=status.HTTP_201_CREATED, data=token)
 
 
 class UserForgotPasswordApi(APIView):
@@ -120,9 +118,9 @@ class UserForgotPasswordVerifyApi(APIView):
         serializers.is_valid(raise_exception=True)
 
         user = user_forgot_password_verify(**serializers.validated_data)
-        token, created = Token.objects.get_or_create(user=user)
+        token, created = AuthToken.objects.create(user=user)[1]
 
-        return Response(status=status.HTTP_200_OK, data={'token': token.key})
+        return Response(status=status.HTTP_200_OK, data=token)
 
 
 class UserListApi(APIView):
