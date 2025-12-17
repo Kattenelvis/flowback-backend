@@ -1,13 +1,10 @@
-import knox.models
 from django.contrib.auth import logout
 from django.core.exceptions import ValidationError
 from drf_spectacular.utils import extend_schema
 from phonenumber_field.serializerfields import PhoneNumberField
 from rest_framework import serializers, status
-from rest_framework.authtoken.models import Token
 from rest_framework.permissions import AllowAny
 from knox.views import LoginView as KnoxLoginView
-from rest_framework.authtoken.serializers import AuthTokenSerializer
 from knox.models import AuthToken
 
 from backend.settings import DEBUG_REGISTER_BYPASS_EMAIL_VERIFICATION

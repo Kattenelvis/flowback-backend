@@ -1,8 +1,6 @@
 from asgiref.sync import sync_to_async
-from channels.db import database_sync_to_async
 from channels.testing import WebsocketCommunicator
 from knox.models import AuthToken
-from rest_framework.authtoken.models import Token
 from rest_framework.test import APITransactionTestCase
 
 from backend.middleware import TokenAuthMiddleware
