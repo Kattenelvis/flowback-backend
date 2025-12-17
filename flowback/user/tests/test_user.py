@@ -44,10 +44,12 @@ class UserTest(APITestCase):
 
         factory = APIRequestFactory()
         view = UserGetApi.as_view()
-        request = factory.post('', headers=dict(Authorization=f'Token {response.data}'))
-        TokenAuthentication
-        print(request.headers)
-        print(view(request))
+        request = factory.get('', headers=dict(Authorization=f'Token {response.data}'))
+        response = view(request)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    def test_user_logout(self):
+
 
     def test_user_delete(self):
         user = self.user_one

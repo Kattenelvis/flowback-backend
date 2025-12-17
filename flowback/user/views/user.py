@@ -47,7 +47,7 @@ class UserLoginAPI(KnoxLoginView):
         serializer = self.InputSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         token = AuthToken.objects.create(
-            user=User.objects.get(username=serializer.data['username']))[0].token_key
+            user=User.objects.get(username=serializer.data['username']))[1]
         print(token)
         return Response(data=token,
                         status=status.HTTP_200_OK)
