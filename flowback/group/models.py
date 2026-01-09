@@ -1,6 +1,7 @@
 import logging
 import uuid
 
+from django.contrib.postgres.fields import ArrayField
 from django.core.validators import MinValueValidator, MaxValueValidator
 from django.db.models import Q
 from django.db.models.signals import post_save, post_delete, pre_save
@@ -543,3 +544,11 @@ class GroupUserDelegator(BaseModel):
 
     class Meta:
         unique_together = ('delegator', 'delegate_pool', 'group')
+
+
+class GroupKPI(BaseModel):
+    group = models.ForeignKey(Group, on_delete=models.CASCADE)
+    name = models.CharField(max_length=255)
+    description = models.TextField(null=True, blank=True)
+    active = models.BooleanField(default=True)
+    values = ArrayField(models.BigIntegerField())

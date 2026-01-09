@@ -38,6 +38,7 @@ class Poll(BaseModel, NotifiableModel):
     description = models.TextField(null=True, blank=True, validators=[FieldNotBlankValidator])
     attachments = models.ForeignKey(FileCollection, on_delete=models.SET_NULL, null=True, blank=True)
     poll_type = models.IntegerField(choices=PollType.choices)
+    version = models.PositiveIntegerField(default=1, validators=[MaxValueValidator(2), MinValueValidator(1)])
     quorum = models.IntegerField(default=None, null=True, blank=True,
                                  validators=[MinValueValidator(0), MaxValueValidator(100)])
     tag = models.ForeignKey(GroupTags, on_delete=models.CASCADE, null=True, blank=True)
@@ -492,6 +493,22 @@ class PollPredictionBet(PredictionBet):
     def reset_prediction_proposal(sender, instance: PollProposal, **kwargs):
         PollPredictionBet.objects.filter(
             prediction_statement__pollpredictionstatementsegment__proposal=instance).delete()
+
+
+class PollProposalKPIVote(BaseModel):
+    created_by = models.ForeignKey(GroupUser, on_delete=models.CASCADE)
+    proposal = models.ForeignKey(PollProposal, on_delete=models.CASCADE)
+    kpi = models.ForeignKey('group.GroupKPI', on_delete=models.CASCADE)
+    value = models.BigIntegerField(default=0)
+    weight = models.IntegerField(default=0)
+
+    def clean(self):
+        if not self.kpi.active:
+            raise ValidationError("KPI must be active")
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=['created_by', 'proposal', 'kpi'],
+                                               name='unique_pollproposalkpivote')]
 
 
 class PollPhaseTemplate(BaseModel):
