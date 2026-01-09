@@ -87,6 +87,27 @@ class PollTest(APITestCase):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
+    def test_create_poll_pre_save(self):
+        data = dict(title='test title',
+                    description='test description',
+                    poll_type=4,
+                    public=True,
+                    tag=self.group_tag.id,
+                    pinned=False,
+                    dynamic=False,
+                    **generate_poll_phase_kwargs('base'))
+
+        response = generate_request(api=PollCreateAPI,
+                                    data=data,
+                                    url_params=dict(group_id=self.group_user_creator.group.id),
+                                    user=self.group_user_creator.user)
+
+        poll = Poll.objects.get(id=response.data)
+
+        labels = [x[1] for x in poll.labels]
+        for i in [i[1] for i in poll.time_table]:
+            exec(f'self.assertEqual(bool(poll.{i}), {"False" if i not in labels else "True"})')
+
     def test_create_poll_notification(self):
         subscriber = self.group_user_one
         poll_creator = self.group_user_two

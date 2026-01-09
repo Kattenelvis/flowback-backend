@@ -3,7 +3,7 @@ from datetime import datetime
 from django.core.validators import MinValueValidator, MaxValueValidator
 from django.db import models
 from django.db.models import Q, F, Count
-from django.db.models.signals import post_save, post_delete
+from django.db.models.signals import post_save, post_delete, pre_save
 from django.dispatch import receiver
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
@@ -107,16 +107,24 @@ class Poll(BaseModel, NotifiableModel):
 
     @property
     def labels(self) -> tuple:
+        # Returns timetable based on the poll type and version
         if self.dynamic:
             if self.poll_type == self.PollType.SCHEDULE:
-                return ((self.start_date, 'start_date', 'schedule'),
+                return ((self.start_date, 'start_date', 'schedule'),  # Schedule poll
                         (self.end_date, 'end_date', 'result'))
 
             else:
-                return ((self.start_date, 'start_date', 'dynamic'),
+                return ((self.start_date, 'start_date', 'dynamic'),  # Dynamic poll
                         (self.end_date, 'end_date', 'result'))
 
-        return ((self.start_date, 'start_date', 'area_vote'),
+        if self.version == 2:  # KPI poll
+            return ((self.start_date, 'start_date', 'proposal'),
+                    (self.proposal_end_date, 'proposal_end_date', 'prediction_bet'),
+                    (self.prediction_bet_end_date, 'prediction_bet_end_date', 'delegate_vote'),
+                    (self.delegate_vote_end_date, 'delegate_vote_end_date', 'vote'),
+                    (self.end_date, 'end_date', 'result'))
+
+        return ((self.start_date, 'start_date', 'area_vote'),  # Prediction poll
                 (self.area_vote_end_date, 'area_vote_end_date', 'proposal'),
                 (self.proposal_end_date, 'proposal_end_date', 'prediction_statement'),
                 (self.prediction_statement_end_date, 'prediction_statement_end_date', 'prediction_bet'),
@@ -127,6 +135,7 @@ class Poll(BaseModel, NotifiableModel):
 
     @property
     def time_table(self) -> list:
+        # Returns unedited timetable based on the model
         labels = [[self.start_date, 'start_date', 'area_vote'],
                   [self.area_vote_end_date, 'area_vote_end_date', 'proposal'],
                   [self.proposal_end_date, 'proposal_end_date', 'prediction_statement'],
@@ -136,24 +145,21 @@ class Poll(BaseModel, NotifiableModel):
                   [self.vote_end_date, 'vote_end_date', 'result'],
                   [self.end_date, 'end_date', 'prediction_vote']]
 
-        if self.dynamic:
-            if self.poll_type == self.PollType.SCHEDULE:
-                labels[0][2] = 'schedule'
-                labels[6][2] = 'result_default'
-                labels[7][2] = 'result'
-
-            else:
-                labels[0][2] = 'dynamic'
-                labels[6][2] = 'result_default'
-                labels[7][2] = 'result'
-
         return labels
+
+    @classmethod
+    def pre_save(cls, instance, *args, **kwargs):
+        labels = [x[1] for x in instance.labels]
+        for i in [i[1] for i in instance.time_table if i[1] not in labels]:
+            exec(i[1] + ' = None')
 
     def clean(self):
         labels = self.labels
+
         for x in range(len(labels) - 1):
             phase = labels[x]
             next_phase = labels[x + 1]
+
             if phase[0] >= next_phase[0]:
                 raise ValidationError(f'{phase[1].replace("_", " ").title()} '
                                       f'starts after {next_phase[1].replace("_", " ").title()}')
@@ -200,7 +206,7 @@ class Poll(BaseModel, NotifiableModel):
         return 'waiting'
 
     def get_phase(self, phase: str, field_name=False) -> datetime | str:
-        time_table = self.time_table
+        time_table = self.labels
 
         for x in reversed(range(len(time_table))):
             if phase == time_table[x][2]:
@@ -304,6 +310,7 @@ class Poll(BaseModel, NotifiableModel):
             instance.schedule.delete()
 
 
+pre_save.connect(Poll.pre_save, sender=Poll)
 post_delete.connect(Poll.post_delete, sender=Poll)
 
 
