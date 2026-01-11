@@ -686,32 +686,15 @@ class UserScheduleEventRecurringUpdateTest(APITestCase):
             active=True
         )
 
-        # First update
-        response = generate_request(
-            api=UserScheduleEventUpdateAPI,
-            data={
-                'event_id': self.event.id,
-                'title': self.event.title,
-                'repeat_frequency': self.event.repeat_frequency,
-                'start_date': (self.event.start_date + timedelta(days=2)).isoformat(),
-                'end_date': (self.event.end_date + timedelta(days=2)).isoformat(),
-            },
-            user=self.user
-        )
+        for delta in [2, 3, -1, -2, -10, 15, 25]:
+            response = generate_request(
+                api=UserScheduleEventUpdateAPI,
+                data={
+                    'event_id': self.event.id,
+                    'start_date': (self.event.start_date + timedelta(days=delta)).isoformat(),
+                    'end_date': (self.event.end_date + timedelta(days=delta)).isoformat(),
+                },
+                user=self.user
+            )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-
-        # Second update
-        response2 = generate_request(
-            api=UserScheduleEventUpdateAPI,
-            data={
-                'event_id': self.event.id,
-                'title': self.event.title,
-                'repeat_frequency': self.event.repeat_frequency,
-                'start_date': (self.event.start_date + timedelta(days=3)).isoformat(),
-                'end_date': (self.event.end_date + timedelta(days=3)).isoformat(),
-            },
-            user=self.user
-        )
-
-        self.assertEqual(response2.status_code, status.HTTP_200_OK)
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
