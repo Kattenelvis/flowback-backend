@@ -663,52 +663,55 @@ class UserScheduleEventIntegrationTest(APITestCase):
         self.assertEqual(event1.title, 'User 1 Event')
 
 
-class ScheduleEventRecurringUpdateTest(APITestCase):
+class UserScheduleEventRecurringUpdateTest(APITestCase):
     """Test updating recurring schedule events doesn't cause MultipleObjectsReturned errors"""
 
     def setUp(self):
-        self.user1 = UserFactory.create()
-        self.schedule_user1 = ScheduleUserFactory.create(user=self.user1, schedule=self.user1)
-        self.tag1 = ScheduleTagFactory.create(schedule=self.group1.schedule)
+        self.user = UserFactory.create()
+        self.tag = ScheduleTagFactory.create(schedule=self.user.schedule, name='recurring')
 
-    # Create a daily recurring event
-    def test_schedule_event_update_with_frequency(self):
-        base_date = timezone.now()
-        recurring_event = ScheduleEventFactory.create(
-            schedule=self.group1.schedule,
-            tag=self.tag1,
+    def test_update_recurring_event_multiple_times(self):
+        """Test that updating a recurring event multiple times works correctly"""
+        base_date = timezone.now() + timedelta(days=1)
+
+        # Create a daily recurring event
+        self.event = ScheduleEvent.objects.create(
+            schedule=self.user.schedule,
+            created_by=self.user,
             title='Daily Event',
             start_date=base_date,
             end_date=base_date + timedelta(hours=1),
-            repeat_frequency=1,  # Daily frequency
+            tag=self.tag,
+            repeat_frequency=ScheduleEvent.Frequency.DAILY,
             active=True
         )
 
+        # First update
         response = generate_request(
-            api=ScheduleEventLazyUpdateAPI,
+            api=UserScheduleEventUpdateAPI,
             data={
-                'event_id': recurring_event.id,
-                'title': recurring_event.title,
-                'repeat_frequency': recurring_event.repeat_frequency,
-                'start_date': recurring_event.start_date + timedelta(days=2),
-                'end_date': recurring_event.end_date + timedelta(days=2),
+                'event_id': self.event.id,
+                'title': self.event.title,
+                'repeat_frequency': self.event.repeat_frequency,
+                'start_date': (self.event.start_date + timedelta(days=2)).isoformat(),
+                'end_date': (self.event.end_date + timedelta(days=2)).isoformat(),
             },
-            url_params={'schedule_id': self.group1.schedule.id},
-            user=self.user1
-        )
-
-        response2 = generate_request(
-            api=ScheduleEventLazyUpdateAPI,
-            data={
-                'event_id': recurring_event.id,
-                'title': recurring_event.title,
-                'repeat_frequency': recurring_event.repeat_frequency,
-                'start_date': recurring_event.start_date + timedelta(days=3),
-                'end_date': recurring_event.end_date + timedelta(days=3)
-            },
-            url_params={'schedule_id': self.group1.schedule.id},
-            user=self.user1
+            user=self.user
         )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        # Second update
+        response2 = generate_request(
+            api=UserScheduleEventUpdateAPI,
+            data={
+                'event_id': self.event.id,
+                'title': self.event.title,
+                'repeat_frequency': self.event.repeat_frequency,
+                'start_date': (self.event.start_date + timedelta(days=3)).isoformat(),
+                'end_date': (self.event.end_date + timedelta(days=3)).isoformat(),
+            },
+            user=self.user
+        )
+
         self.assertEqual(response2.status_code, status.HTTP_200_OK)
