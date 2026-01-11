@@ -31,7 +31,7 @@ class UserScheduleEventCreateAPITest(APITestCase):
     def test_create_event_success_minimal(self):
         """Test creating a schedule event with minimal required fields"""
         start_date = timezone.now() + timedelta(days=1)
-        
+
         data = {
             'title': 'Team Meeting',
             'start_date': start_date.isoformat(),
@@ -44,13 +44,13 @@ class UserScheduleEventCreateAPITest(APITestCase):
         )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
-        
+
         # Verify event was created
         event = ScheduleEvent.objects.filter(
             schedule=self.user.schedule,
             title='Team Meeting'
         ).first()
-        
+
         self.assertIsNotNone(event)
         self.assertEqual(event.title, 'Team Meeting')
         self.assertEqual(event.schedule, self.user.schedule)
@@ -59,7 +59,7 @@ class UserScheduleEventCreateAPITest(APITestCase):
         """Test creating a schedule event with all fields"""
         start_date = timezone.now() + timedelta(days=1)
         end_date = start_date + timedelta(hours=2)
-        
+
         data = {
             'title': 'Project Review',
             'description': 'Quarterly project review meeting',
@@ -77,13 +77,13 @@ class UserScheduleEventCreateAPITest(APITestCase):
         )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
-        
+
         # Verify event was created with all fields
         event = ScheduleEvent.objects.filter(
             schedule=self.user.schedule,
             title='Project Review'
         ).first()
-        
+
         self.assertIsNotNone(event)
         self.assertEqual(event.title, 'Project Review')
         self.assertEqual(event.description, 'Quarterly project review meeting')
@@ -94,7 +94,7 @@ class UserScheduleEventCreateAPITest(APITestCase):
     def test_create_event_with_blank_description(self):
         """Test creating an event with blank description"""
         start_date = timezone.now() + timedelta(days=1)
-        
+
         data = {
             'title': 'Quick Sync',
             'description': '',
@@ -112,7 +112,7 @@ class UserScheduleEventCreateAPITest(APITestCase):
     def test_create_event_missing_title(self):
         """Test creating an event without required title field"""
         start_date = timezone.now() + timedelta(days=1)
-        
+
         data = {
             'start_date': start_date.isoformat(),
         }
@@ -142,7 +142,7 @@ class UserScheduleEventCreateAPITest(APITestCase):
     def test_create_event_unauthenticated(self):
         """Test creating an event without authentication"""
         start_date = timezone.now() + timedelta(days=1)
-        
+
         data = {
             'title': 'Unauthenticated Event',
             'start_date': start_date.isoformat(),
@@ -159,7 +159,7 @@ class UserScheduleEventCreateAPITest(APITestCase):
     def test_create_event_with_assignees(self):
         """Test creating an event with assignees (should work for user schedule)"""
         start_date = timezone.now() + timedelta(days=1)
-        
+
         data = {
             'title': 'Team Task',
             'start_date': start_date.isoformat(),
@@ -183,11 +183,11 @@ class UserScheduleEventUpdateAPITest(APITestCase):
     def setUp(self):
         self.user = UserFactory.create()
         self.tag = ScheduleTagFactory.create(schedule=self.user.schedule, name='work')
-        
+
         # Create an event to update
         start_date = timezone.now() + timedelta(days=1)
         end_date = start_date + timedelta(hours=1)
-        
+
         self.event = ScheduleEvent.objects.create(
             schedule=self.user.schedule,
             created_by=self.user,
@@ -213,7 +213,7 @@ class UserScheduleEventUpdateAPITest(APITestCase):
         )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        
+
         # Verify event was updated
         self.event.refresh_from_db()
         self.assertEqual(self.event.title, 'Updated Title')
@@ -233,7 +233,7 @@ class UserScheduleEventUpdateAPITest(APITestCase):
         )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        
+
         self.event.refresh_from_db()
         self.assertEqual(self.event.description, 'Updated description')
 
@@ -241,7 +241,7 @@ class UserScheduleEventUpdateAPITest(APITestCase):
         """Test updating event start and end dates"""
         new_start_date = timezone.now() + timedelta(days=2)
         new_end_date = new_start_date + timedelta(hours=3)
-        
+
         data = {
             'event_id': self.event.id,
             'start_date': new_start_date.isoformat(),
@@ -255,7 +255,7 @@ class UserScheduleEventUpdateAPITest(APITestCase):
         )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        
+
         self.event.refresh_from_db()
         # Compare timestamps (strip microseconds for comparison)
         self.assertEqual(
@@ -277,7 +277,7 @@ class UserScheduleEventUpdateAPITest(APITestCase):
         )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        
+
         self.event.refresh_from_db()
         self.assertEqual(self.event.meeting_link, 'https://zoom.us/j/12345')
 
@@ -295,7 +295,7 @@ class UserScheduleEventUpdateAPITest(APITestCase):
         )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        
+
         self.event.refresh_from_db()
         self.assertEqual(self.event.repeat_frequency, ScheduleEvent.Frequency.DAILY)
 
@@ -303,7 +303,7 @@ class UserScheduleEventUpdateAPITest(APITestCase):
         """Test updating multiple fields at once"""
         new_start_date = timezone.now() + timedelta(days=3)
         new_end_date = timezone.now() + timedelta(days=6)
-        
+
         data = {
             'event_id': self.event.id,
             'title': 'Multi-field Update',
@@ -320,7 +320,7 @@ class UserScheduleEventUpdateAPITest(APITestCase):
         )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
-        
+
         self.event.refresh_from_db()
         self.assertEqual(self.event.title, 'Multi-field Update')
         self.assertEqual(self.event.description, 'Updated multiple fields')
@@ -386,7 +386,7 @@ class UserScheduleEventUpdateAPITest(APITestCase):
         )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
-        
+
         self.event.refresh_from_db()
         self.assertIsNone(self.event.description)
         self.assertIsNone(self.event.end_date)
@@ -400,10 +400,10 @@ class UserScheduleEventDeleteAPITest(APITestCase):
         self.user = UserFactory.create()
         self.other_user = UserFactory.create()
         self.tag = ScheduleTagFactory.create(schedule=self.user.schedule, name='task')
-        
+
         # Create an event to delete
         start_date = timezone.now() + timedelta(days=1)
-        
+
         self.event = ScheduleEvent.objects.create(
             created_by=self.user,
             schedule=self.user.schedule,
@@ -427,7 +427,7 @@ class UserScheduleEventDeleteAPITest(APITestCase):
         )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        
+
         # Verify event was deleted
         self.assertFalse(
             ScheduleEvent.objects.filter(id=self.event.id).exists()
@@ -444,7 +444,7 @@ class UserScheduleEventDeleteAPITest(APITestCase):
         )
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        
+
         # Verify event still exists
         self.assertTrue(
             ScheduleEvent.objects.filter(id=self.event.id).exists()
@@ -477,7 +477,7 @@ class UserScheduleEventDeleteAPITest(APITestCase):
         )
 
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
-        
+
         # Verify event still exists
         self.assertTrue(
             ScheduleEvent.objects.filter(id=self.event.id).exists()
@@ -486,7 +486,7 @@ class UserScheduleEventDeleteAPITest(APITestCase):
     def test_delete_event_verify_cleanup(self):
         """Test that deleting an event properly removes all related data"""
         event_id = self.event.id
-        
+
         data = {
             'event_id': event_id
         }
@@ -498,12 +498,12 @@ class UserScheduleEventDeleteAPITest(APITestCase):
         )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        
+
         # Verify event is completely gone
         self.assertFalse(
             ScheduleEvent.objects.filter(id=event_id).exists()
         )
-        
+
         # Ensure user's schedule still exists
         self.user.refresh_from_db()
         self.assertIsNotNone(self.user.schedule)
@@ -519,7 +519,7 @@ class UserScheduleEventIntegrationTest(APITestCase):
     def test_create_update_delete_lifecycle(self):
         """Test creating, updating, and deleting an event in sequence"""
         start_date = timezone.now() + timedelta(days=1)
-        
+
         # Create event
         create_data = {
             'title': 'Lifecycle Event',
@@ -534,16 +534,16 @@ class UserScheduleEventIntegrationTest(APITestCase):
         )
 
         self.assertEqual(create_response.status_code, status.HTTP_200_OK)
-        
+
         # Find the created event
         event = ScheduleEvent.objects.filter(
             schedule=self.user.schedule,
             title='Lifecycle Event'
         ).first()
-        
+
         self.assertIsNotNone(event)
         event_id = event.id
-        
+
         # Update event
         update_data = {
             'event_id': event_id,
@@ -558,11 +558,11 @@ class UserScheduleEventIntegrationTest(APITestCase):
         )
 
         self.assertEqual(update_response.status_code, status.HTTP_200_OK)
-        
+
         event.refresh_from_db()
         self.assertEqual(event.title, 'Updated Lifecycle Event')
         self.assertEqual(event.description, 'Updated description')
-        
+
         # Delete event
         delete_data = {
             'event_id': event_id
@@ -575,7 +575,7 @@ class UserScheduleEventIntegrationTest(APITestCase):
         )
 
         self.assertEqual(delete_response.status_code, status.HTTP_200_OK)
-        
+
         # Verify event is gone
         self.assertFalse(
             ScheduleEvent.objects.filter(id=event_id).exists()
@@ -584,39 +584,39 @@ class UserScheduleEventIntegrationTest(APITestCase):
     def test_multiple_events_same_user(self):
         """Test creating and managing multiple events for the same user"""
         start_date = timezone.now() + timedelta(days=1)
-        
+
         # Create first event
         event1_data = {
             'title': 'Event 1',
             'start_date': start_date.isoformat(),
         }
-        
+
         response1 = generate_request(
             api=UserScheduleEventCreateAPI,
             data=event1_data,
             user=self.user
         )
-        
+
         self.assertEqual(response1.status_code, status.HTTP_200_OK)
-        
+
         # Create second event
         event2_data = {
             'title': 'Event 2',
             'start_date': (start_date + timedelta(hours=2)).isoformat(),
         }
-        
+
         response2 = generate_request(
             api=UserScheduleEventCreateAPI,
             data=event2_data,
             user=self.user
         )
-        
+
         self.assertEqual(response2.status_code, status.HTTP_200_OK)
-        
+
         # Verify both events exist
         events = ScheduleEvent.objects.filter(schedule=self.user.schedule)
         self.assertEqual(events.count(), 2)
-        
+
         event_titles = [e.title for e in events]
         self.assertIn('Event 1', event_titles)
         self.assertIn('Event 2', event_titles)
@@ -625,11 +625,11 @@ class UserScheduleEventIntegrationTest(APITestCase):
         """Test that users can only access their own schedule events"""
         user1 = UserFactory.create()
         user2 = UserFactory.create()
-        
+
         tag1 = ScheduleTagFactory.create(schedule=user1.schedule, name='user1_tag')
-        
+
         start_date = timezone.now() + timedelta(days=1)
-        
+
         # Create event for user1
         event1 = ScheduleEvent.objects.create(
             created_by=user1,
@@ -639,25 +639,76 @@ class UserScheduleEventIntegrationTest(APITestCase):
             tag=tag1,
             active=True
         )
-        
+
         # Verify schedules are different
         self.assertNotEqual(user1.schedule.id, user2.schedule.id)
-        
+
         # User2 should not be able to update user1's event
         update_data = {
             'event_id': event1.id,
             'title': 'Hacked by User 2'
         }
-        
+
         response = generate_request(
             api=UserScheduleEventUpdateAPI,
             data=update_data,
             user=user2
         )
-        
+
         # Should fail because the event belongs to a different schedule
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        
+
         # Verify event was not modified
         event1.refresh_from_db()
         self.assertEqual(event1.title, 'User 1 Event')
+
+
+class ScheduleEventRecurringUpdateTest(APITestCase):
+    """Test updating recurring schedule events doesn't cause MultipleObjectsReturned errors"""
+
+    def setUp(self):
+        self.user1 = UserFactory.create()
+        self.schedule_user1 = ScheduleUserFactory.create(user=self.user1, schedule=self.user1)
+        self.tag1 = ScheduleTagFactory.create(schedule=self.group1.schedule)
+
+    # Create a daily recurring event
+    def test_schedule_event_update_with_frequency(self):
+        base_date = timezone.now()
+        recurring_event = ScheduleEventFactory.create(
+            schedule=self.group1.schedule,
+            tag=self.tag1,
+            title='Daily Event',
+            start_date=base_date,
+            end_date=base_date + timedelta(hours=1),
+            repeat_frequency=1,  # Daily frequency
+            active=True
+        )
+
+        response = generate_request(
+            api=ScheduleEventLazyUpdateAPI,
+            data={
+                'event_id': recurring_event.id,
+                'title': recurring_event.title,
+                'repeat_frequency': recurring_event.repeat_frequency,
+                'start_date': recurring_event.start_date + timedelta(days=2),
+                'end_date': recurring_event.end_date + timedelta(days=2),
+            },
+            url_params={'schedule_id': self.group1.schedule.id},
+            user=self.user1
+        )
+
+        response2 = generate_request(
+            api=ScheduleEventLazyUpdateAPI,
+            data={
+                'event_id': recurring_event.id,
+                'title': recurring_event.title,
+                'repeat_frequency': recurring_event.repeat_frequency,
+                'start_date': recurring_event.start_date + timedelta(days=3),
+                'end_date': recurring_event.end_date + timedelta(days=3)
+            },
+            url_params={'schedule_id': self.group1.schedule.id},
+            user=self.user1
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response2.status_code, status.HTTP_200_OK)

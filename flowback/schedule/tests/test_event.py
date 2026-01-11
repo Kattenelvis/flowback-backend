@@ -21,7 +21,7 @@ from flowback.schedule.tests.factories import (ScheduleEventFactory, ScheduleUse
                                                ScheduleTagFactory, ScheduleEventSubscriptionFactory,
                                                ScheduleTagSubscriptionFactory)
 from flowback.schedule.views import (ScheduleEventListAPI,
-                                     ScheduleEventSubscribeAPI, ScheduleEventUnsubscribeAPI)
+                                     ScheduleEventSubscribeAPI, ScheduleEventUnsubscribeAPI, ScheduleEventLazyUpdateAPI)
 from flowback.user.tests.factories import UserFactory
 from flowback.group.tests.factories import GroupFactory, GroupUserFactory
 
