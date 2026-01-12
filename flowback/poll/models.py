@@ -134,7 +134,7 @@ class Poll(BaseModel, NotifiableModel):
                 (self.end_date, 'end_date', 'prediction_vote'))
 
     @property
-    def time_table(self) -> list:
+    def time_table(self) -> list:  # TODO fix fast_forward, timestamps can be None
         # Returns unedited timetable based on the model
         labels = [[self.start_date, 'start_date', 'area_vote'],
                   [self.area_vote_end_date, 'area_vote_end_date', 'proposal'],
