@@ -675,7 +675,7 @@ class UserScheduleEventRecurringUpdateTest(APITestCase):
         base_date = timezone.now() + timedelta(days=1)
 
         # Create a daily recurring event
-        self.event = ScheduleEvent.objects.create(
+        self.event1 = ScheduleEvent.objects.create(
             schedule=self.user.schedule,
             created_by=self.user,
             title='Daily Event',
@@ -686,15 +686,38 @@ class UserScheduleEventRecurringUpdateTest(APITestCase):
             active=True
         )
 
-        for delta in [2, 3, -1, -2, -10, 15, 25]:
-            response = generate_request(
+        # Create a daily recurring event
+        self.event2 = ScheduleEvent.objects.create(
+            schedule=self.user.schedule,
+            created_by=self.user,
+            title='Daily Event',
+            start_date=base_date,
+            end_date=base_date + timedelta(hours=1),
+            tag=self.tag,
+            repeat_frequency=ScheduleEvent.Frequency.DAILY,
+            active=True
+        )
+
+        for delta in [2, 3, -1, -2, -10, 15, 25, 2, 3, -1, -1, -2, -10, 15, 15, 15, 25]:
+            response1 = generate_request(
                 api=UserScheduleEventUpdateAPI,
                 data={
-                    'event_id': self.event.id,
-                    'start_date': (self.event.start_date + timedelta(days=delta)).isoformat(),
-                    'end_date': (self.event.end_date + timedelta(days=delta)).isoformat(),
+                    'event_id': self.event1.id,
+                    'start_date': (self.event1.start_date + timedelta(days=delta)).isoformat(),
+                    'end_date': (self.event1.end_date + timedelta(days=delta)).isoformat(),
                 },
                 user=self.user
             )
 
-            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            response2 = generate_request(
+                api=UserScheduleEventUpdateAPI,
+                data={
+                    'event_id': self.event2.id,
+                    'start_date': (self.event2.start_date + timedelta(days=delta)).isoformat(),
+                    'end_date': (self.event2.end_date + timedelta(days=delta)).isoformat(),
+                },
+                user=self.user
+            )
+
+            self.assertEqual(response1.status_code, status.HTTP_200_OK)
+            self.assertEqual(response2.status_code, status.HTTP_200_OK)
