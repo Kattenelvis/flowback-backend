@@ -205,8 +205,16 @@ class Poll(BaseModel, NotifiableModel):
 
         return 'waiting'
 
-    def get_phase(self, phase: str, field_name=False) -> datetime | str:
-        time_table = self.labels
+    def get_phase(self, phase: str, use_time_table=False, field_name=False) -> datetime | str:
+        """
+        Gets the phase of the label input.
+        :param phase: The phase to get the time for
+        :param use_time_table: Whether input is a phase label or a time_table name
+        :param field_name: Returns time_table field name instead of phase datetime
+        :return:
+        """
+
+        time_table = self.labels if not use_time_table else self.time_table
 
         for x in reversed(range(len(time_table))):
             if phase == time_table[x][2]:

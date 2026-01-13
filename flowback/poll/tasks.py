@@ -440,8 +440,12 @@ def poll_proposal_vote_count(poll_id: int) -> None:
         print(f"Total Group Users: {total_group_users}")
         print(f"Quorum: {quorum}")
         poll.status = 1 if poll.participants >= total_group_users * quorum else -1
-        poll.interval_mean_absolute_correctness = group_tags_list(group_id=poll.created_by.group_id,
-                                                                  filters=dict(id=poll.tag_id)).first().imac
+
+        # Save IMAC value if tag exists
+        tag = group_tags_list(group_id=poll.created_by.group_id, filters=dict(id=poll.tag_id)).first()
+        if tag:
+            poll.interval_mean_absolute_correctness = tag.imac
+
         poll.result = winning_proposal
         poll.save()
 

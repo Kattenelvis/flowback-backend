@@ -188,11 +188,13 @@ def poll_fast_forward(*, user_id: int, poll_id: int, phase: str):
 
     # Save new times to dict
     for phase in time_table:
-        phase_time = poll.get_phase(phase) - time_difference
-        setattr(poll, poll.get_phase(phase, field_name=True), phase_time)
+        phase_time = poll.get_phase(phase, use_time_table=True) - time_difference
+        setattr(poll, poll.get_phase(phase, use_time_table=True, field_name=True), phase_time)
 
     poll.full_clean()
     poll.save()
+
+    print(poll.current_phase)
 
     # TODO update/remove previous celery tasks
     if poll.area_vote_end_date > timezone.now():

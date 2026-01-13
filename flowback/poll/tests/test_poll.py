@@ -260,6 +260,18 @@ class PollTest(APITestCase):
         poll.refresh_from_db()
         self.assertEqual('vote', poll.current_phase)
 
+    def test_poll_phase_fast_forward_dynamic(self):
+        poll = PollFactory(created_by__is_admin=True,
+                           allow_fast_forward=True,
+                           poll_type=4,
+                           dynamic=True,
+                           **generate_poll_phase_kwargs())
+        poll_fast_forward(user_id=poll.created_by.user.id, poll_id=poll.id, phase='result')
+
+        poll.refresh_from_db()
+        self.assertEqual('result', poll.current_phase)
+
+
     @staticmethod
     def delete_poll(poll: Poll, user: User):
         factory = APIRequestFactory()
