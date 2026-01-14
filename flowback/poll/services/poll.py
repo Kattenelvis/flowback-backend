@@ -18,6 +18,7 @@ from flowback.user.models import User
 def poll_create(*, user_id: int,
                 group_id: int,
                 title: str,
+                poll_type: int,
                 description: str = None,
                 blockchain_id: int = None,
                 start_date: datetime,
@@ -29,7 +30,7 @@ def poll_create(*, user_id: int,
                 vote_end_date: datetime = None,
                 schedule_poll_meeting_link: str = None,
                 end_date: datetime = None,
-                poll_type: int,
+                version: int = 1,
                 allow_fast_forward: bool = False,
                 public: bool,
                 tag: int = None,
@@ -60,15 +61,6 @@ def poll_create(*, user_id: int,
         elif not dynamic:
             raise ValidationError('Schedule poll must be dynamic')
 
-    elif not all([proposal_end_date,
-                  prediction_statement_end_date,
-                  area_vote_end_date,
-                  prediction_bet_end_date,
-                  delegate_vote_end_date,
-                  vote_end_date,
-                  end_date]):
-        raise ValidationError('Missing required parameter(s) for generic poll')
-
     elif work_group_id is not None:
         raise ValidationError("Work groups are only assignable to date polls")
 
@@ -91,6 +83,7 @@ def poll_create(*, user_id: int,
                 vote_end_date=vote_end_date,
                 end_date=end_date,
                 poll_type=poll_type,
+                version=version,
                 allow_fast_forward=allow_fast_forward,
                 public=public,
                 tag_id=tag,
@@ -105,11 +98,16 @@ def poll_create(*, user_id: int,
     poll.full_clean()
     poll.save()
 
-    poll_area_vote_count.apply_async(kwargs=dict(poll_id=poll.id), eta=poll.area_vote_end_date)
-    poll_prediction_bet_count.apply_async(kwargs=dict(poll_id=poll.id),
-                                          eta=poll.prediction_bet_end_date)
-    poll_proposal_vote_count.apply_async(kwargs=dict(poll_id=poll.id),
-                                         eta=poll.end_date)
+    if not version == 2:
+        poll_area_vote_count.apply_async(kwargs=dict(poll_id=poll.id), eta=poll.area_vote_end_date)
+
+    if not poll_type == Poll.PollType.SCHEDULE:
+        poll_prediction_bet_count.apply_async(kwargs=dict(poll_id=poll.id),
+                                              eta=poll.prediction_bet_end_date)
+
+    if not poll.dynamic:
+        poll_proposal_vote_count.apply_async(kwargs=dict(poll_id=poll.id),
+                                             eta=poll.end_date)
 
     notify_group_poll(message="A new poll has been posted",
                       action=NotificationChannel.Action.CREATED,

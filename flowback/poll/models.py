@@ -87,7 +87,8 @@ class Poll(BaseModel, NotifiableModel):
     2 - Calculating Combined Bets
     """
     status_prediction = models.IntegerField(default=0)
-    result = models.ForeignKey('poll.PollProposal', null=True, blank=True, on_delete=models.SET_NULL, related_name='winning_proposal')
+    result = models.ForeignKey('poll.PollProposal', null=True, blank=True, on_delete=models.SET_NULL,
+                               related_name='winning_proposal')
 
     # Comment section
     comment_section = models.ForeignKey(CommentSection, default=comment_section_create_model_default,
@@ -155,6 +156,10 @@ class Poll(BaseModel, NotifiableModel):
 
     def clean(self):
         labels = self.labels
+
+        if not all([x[0] is not None for x in labels]):
+            raise ValidationError('Current poll type requires following fields to be filled: ' +
+                                  ', '.join([x[1] for x in labels]))
 
         for x in range(len(labels) - 1):
             phase = labels[x]
