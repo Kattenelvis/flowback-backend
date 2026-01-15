@@ -1,3 +1,5 @@
+import random
+
 import factory
 
 from flowback.comment.tests.factories import CommentSectionFactory
@@ -12,7 +14,7 @@ from flowback.group.models import (Group,
                                    GroupUserDelegate,
                                    GroupUserDelegatePool,
                                    GroupUserDelegator, GroupThreadVote, WorkGroup, WorkGroupUser,
-                                   WorkGroupUserJoinRequest)
+                                   WorkGroupUserJoinRequest, GroupKPI)
 from flowback.kanban.models import KanbanEntry
 from flowback.user.tests.factories import UserFactory
 
@@ -31,8 +33,7 @@ class GroupUserFactory(factory.django.DjangoModelFactory):
         model = GroupUser
 
     user = factory.SubFactory(UserFactory)
-    group = factory.SubFactory(GroupFactory, created_by=user)
-    is_admin = factory.LazyAttribute(lambda o: o.group.created_by == o.user)
+    is_admin = factory.LazyAttribute(lambda o: o.user.id == o.group.created_by.id)
 
 
 class WorkGroupFactory(factory.django.DjangoModelFactory):
@@ -125,3 +126,14 @@ class GroupUserDelegatorFactory(factory.django.DjangoModelFactory):
     group = factory.SubFactory(GroupFactory)
     delegator = factory.SubFactory(GroupUserFactory, group=factory.SelfAttribute('..group'))
     delegate_pool = factory.SubFactory(GroupUserDelegatePoolFactory, group=factory.SelfAttribute('..group'))
+
+
+class GroupKPIFactory(factory.django.DjangoModelFactory):
+    class Meta:
+        model = GroupKPI
+
+    group = factory.SubFactory(GroupFactory)
+    name = factory.LazyAttribute(lambda _: fake.unique.first_name())
+    description = factory.LazyAttribute(lambda _: fake.paragraph())
+    active = True
+    values = factory.LazyAttribute(lambda _: [random.randint(0, 1000000) for _ in range(10)])
