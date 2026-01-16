@@ -10,8 +10,9 @@ from ..models import (PollPredictionBet,
                       PollPredictionStatement,
                       PollPredictionStatementSegment,
                       PollPredictionStatementVote,
-                      Poll, PollProposal)
+                      Poll, PollProposal, PollProposalKPIBet)
 from ...common.services import get_object, model_update
+from ...group.models import GroupKPI
 from ...group.selectors.permission import group_user_permissions
 from ...user.models import User
 
@@ -228,3 +229,52 @@ def update_poll_prediction_statement_outcomes(poll_prediction_statement_ids: lis
                            output_field=models.BooleanField())).values("outcome_score")
 
     qs_filter.update(outcome=Subquery(outcome_score))
+
+
+def poll_proposal_kpi_bet(user_id: int,
+                          proposal_id: int,
+                          kpi_id: int,
+                          values: list[int],
+                          weights: list[int]) -> list[int]:
+    """
+    Creates KPI bets in buk
+    :param user_id: User id
+    :param proposal_id: PollProposal id
+    :param kpi_id: GroupKPI id
+    :param values: List of GroupKPI values, must exist in GroupKPI
+    :param weights: List of weights (bets). Index of weights correspond to the index of value for betting.
+    :return: List of new KPI ids or empty list
+    """
+
+    proposal = PollProposal.objects.get(id=proposal_id)
+    group_user = group_user_permissions(user=user_id, group=proposal.created_by.group, permissions=['admin',
+                                                                                                    'allow_vote'])
+    kpi = GroupKPI.objects.get(id=kpi_id, group_id=group_user.group.id, active=True)
+
+    if not proposal.poll.version == 2:
+        raise ValidationError('Poll does not support KPI')
+
+    if not proposal.poll.check_phase('dynamic', 'prediction_bet'):
+        raise ValidationError('Poll is not in phase for KPI betting')
+
+    elif not len(values) == len(weights):
+        raise ValidationError("Values have more or less values than weights.")
+
+    if any([i not in kpi.values for i in values]):
+        raise ValidationError("One or more KPI values does not exist in the KPI")
+
+    PollProposalKPIBet.objects.filter(created_by=group_user, kpi=kpi).delete()
+
+    if len(values) == 0:
+        return []
+
+    staged = []
+    for i in range(len(values)):
+        staged.append(PollProposalKPIBet(created_by=group_user,
+                                         proposal=proposal,
+                                         kpi=kpi,
+                                         value=values[i],
+                                         weight=weights[i]))
+
+    bets = PollProposalKPIBet.objects.bulk_create(objs=staged)
+    return [i.id for i in bets]

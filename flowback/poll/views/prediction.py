@@ -14,7 +14,8 @@ from ..services.prediction import (poll_prediction_statement_create,
                                    poll_prediction_bet_delete,
                                    poll_prediction_statement_vote_create,
                                    poll_prediction_statement_vote_update,
-                                   poll_prediction_statement_vote_delete)
+                                   poll_prediction_statement_vote_delete, poll_proposal_kpi_bet)
+from ...common.fields import CharacterSeparatedField
 
 
 @extend_schema(tags=['poll/prediction'])
@@ -204,3 +205,17 @@ class PollPredictionStatementVoteDeleteAPI(APIView):
                                               prediction_statement_id=prediction_statement_id)
 
         return Response(status=status.HTTP_200_OK)
+
+
+@extend_schema(tags=['poll/prediction'])
+class PollProposalKPIBetAPI(APIView):
+    class InputSerializer(serializers.Serializer):
+        kpi_id = serializers.IntegerField()
+        values = CharacterSeparatedField(child=serializers.IntegerField())
+        weights = CharacterSeparatedField(child=serializers.IntegerField())
+
+    def post(self, request, proposal_id: int):
+        serializer = self.InputSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        poll_proposal_kpi_bet(user_id=request.user, proposal_id=proposal_id, **serializer.validated_data)

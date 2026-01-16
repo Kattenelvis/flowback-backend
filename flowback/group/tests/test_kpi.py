@@ -20,8 +20,6 @@ class GroupKPITest(APITestCase):
                                     url_params=dict(group_id=self.group.id),
                                     user=self.group_user.user)
 
-        print(response.data)
-
     def test_group_kpi_create(self):
         data = dict(name="test", description="test", values="1,9,19,39,77,1745")
 

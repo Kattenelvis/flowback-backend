@@ -515,7 +515,7 @@ class PollPredictionBet(PredictionBet):
             prediction_statement__pollpredictionstatementsegment__proposal=instance).delete()
 
 
-class PollProposalKPIVote(BaseModel):
+class PollProposalKPIBet(BaseModel):
     created_by = models.ForeignKey(GroupUser, on_delete=models.CASCADE)
     proposal = models.ForeignKey(PollProposal, on_delete=models.CASCADE)
     kpi = models.ForeignKey('group.GroupKPI', on_delete=models.CASCADE)
@@ -528,7 +528,7 @@ class PollProposalKPIVote(BaseModel):
 
     class Meta:
         constraints = [models.UniqueConstraint(fields=['created_by', 'proposal', 'kpi'],
-                                               name='unique_pollproposalkpivote')]
+                                               name='unique_pollproposalkpibet')]
 
 
 class PollPhaseTemplate(BaseModel):
