@@ -235,7 +235,7 @@ def poll_proposal_kpi_bet(user_id: int,
                           proposal_id: int,
                           kpi_id: int,
                           values: list[int],
-                          weights: list[int]) -> list[int]:
+                          weights: list[int]) -> list[PollProposalKPIBet]:
     """
     Creates KPI bets in buk
     :param user_id: User id
@@ -277,13 +277,13 @@ def poll_proposal_kpi_bet(user_id: int,
                                          weight=weights[i]))
 
     bets = PollProposalKPIBet.objects.bulk_create(objs=staged)
-    return [i.id for i in bets]
+    return bets
 
 
 def poll_proposal_kpi_vote(user_id: int,
                            proposal_id: int,
                            kpi_id: int,
-                           vote: bool = None):
+                           vote: bool = None) -> PollProposalKPIVote | None:
     proposal = PollProposal.objects.get(id=proposal_id, poll__active=True)
     group_user = group_user_permissions(user=user_id, group=proposal.created_by.group, permissions=['admin',
                                                                                                     'allow_vote'])
@@ -298,6 +298,7 @@ def poll_proposal_kpi_vote(user_id: int,
 
     if not vote:
         PollProposalKPIVote.objects.get(created_by=group_user, proposal=proposal, kpi=kpi).delete()
+        return None
 
     vote = PollProposalKPIVote(created_by=group_user, proposal=proposal, kpi=kpi, vote=vote)
     vote.full_clean()
