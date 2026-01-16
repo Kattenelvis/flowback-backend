@@ -10,7 +10,7 @@ from ..models import (PollPredictionBet,
                       PollPredictionStatement,
                       PollPredictionStatementSegment,
                       PollPredictionStatementVote,
-                      Poll, PollProposal, PollProposalKPIBet)
+                      Poll, PollProposal, PollProposalKPIBet, PollProposalKPIVote)
 from ...common.services import get_object, model_update
 from ...group.models import GroupKPI
 from ...group.selectors.permission import group_user_permissions
@@ -246,7 +246,7 @@ def poll_proposal_kpi_bet(user_id: int,
     :return: List of new KPI ids or empty list
     """
 
-    proposal = PollProposal.objects.get(id=proposal_id)
+    proposal = PollProposal.objects.get(id=proposal_id, poll__active=True)
     group_user = group_user_permissions(user=user_id, group=proposal.created_by.group, permissions=['admin',
                                                                                                     'allow_vote'])
     kpi = GroupKPI.objects.get(id=kpi_id, group_id=group_user.group.id, active=True)
@@ -278,3 +278,29 @@ def poll_proposal_kpi_bet(user_id: int,
 
     bets = PollProposalKPIBet.objects.bulk_create(objs=staged)
     return [i.id for i in bets]
+
+
+def poll_proposal_kpi_vote(user_id: int,
+                           proposal_id: int,
+                           kpi_id: int,
+                           vote: bool = None):
+    proposal = PollProposal.objects.get(id=proposal_id, poll__active=True)
+    group_user = group_user_permissions(user=user_id, group=proposal.created_by.group, permissions=['admin',
+                                                                                                    'allow_vote'])
+
+    kpi = GroupKPI.objects.get(id=kpi_id, group=group_user.group, active=True)
+
+    if not proposal.poll.version == 2:
+        raise ValidationError('Poll does not support KPI')
+
+    if not proposal.poll.check_phase('result'):
+        raise ValidationError('Poll is not in phase for KPI vote')
+
+    if not vote:
+        PollProposalKPIVote.objects.get(created_by=group_user, proposal=proposal, kpi=kpi).delete()
+
+    vote = PollProposalKPIVote(created_by=group_user, proposal=proposal, kpi=kpi, vote=vote)
+    vote.full_clean()
+    vote.save()
+
+    return vote

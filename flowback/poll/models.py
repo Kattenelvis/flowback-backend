@@ -531,6 +531,21 @@ class PollProposalKPIBet(BaseModel):
                                                name='unique_pollproposalkpibet')]
 
 
+class PollProposalKPIVote(BaseModel):
+    created_by = models.ForeignKey(GroupUser, on_delete=models.CASCADE)
+    proposal = models.ForeignKey(PollProposal, on_delete=models.CASCADE)
+    kpi = models.ForeignKey('group.GroupKPI', on_delete=models.CASCADE)
+    vote = models.BooleanField()
+
+    def clean(self):
+        if not self.kpi.active:
+            raise ValidationError("KPI must be active")
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=['created_by', 'proposal', 'kpi'],
+                                               name='unique_pollproposalkpivote')]
+
+
 class PollPhaseTemplate(BaseModel):
     created_by_group_user = models.ForeignKey(GroupUser, on_delete=models.CASCADE)
     name = models.CharField(max_length=255, validators=[FieldNotBlankValidator])
