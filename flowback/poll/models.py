@@ -242,13 +242,21 @@ class Poll(BaseModel, NotifiableModel):
 
         return False
 
-    def check_phase(self, *phases: str):
+    def check_phase(self, *phases: str, raise_exception: bool = True):
         if not any(self.phase_exist(phase, raise_exception=False) for phase in phases):
+            if not raise_exception:
+                return False
+
             raise ValidationError(f'Action is unavailable for this poll')
 
         current_phase = self.current_phase
         if current_phase not in phases:
+            if not raise_exception:
+                return False
+
             raise ValidationError(f'Poll is not in {" or ".join(phases)}, currently in {current_phase}')
+
+        return True
 
     NOTIFICATION_DATA_FIELDS = (('poll_id', int),
                                 ('poll_title', str),
@@ -527,7 +535,7 @@ class PollProposalKPIBet(BaseModel):
             raise ValidationError("KPI must be active")
 
     class Meta:
-        constraints = [models.UniqueConstraint(fields=['created_by', 'proposal', 'kpi'],
+        constraints = [models.UniqueConstraint(fields=['created_by', 'proposal', 'kpi', 'value'],
                                                name='unique_pollproposalkpibet')]
 
 
@@ -535,7 +543,7 @@ class PollProposalKPIVote(BaseModel):
     created_by = models.ForeignKey(GroupUser, on_delete=models.CASCADE)
     proposal = models.ForeignKey(PollProposal, on_delete=models.CASCADE)
     kpi = models.ForeignKey('group.GroupKPI', on_delete=models.CASCADE)
-    vote = models.BooleanField()
+    vote = models.IntegerField()
 
     def clean(self):
         if not self.kpi.active:

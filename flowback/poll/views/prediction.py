@@ -226,8 +226,8 @@ class PollProposalKPIBetAPI(APIView):
 @extend_schema(tags=['poll/prediction'])
 class PollProposalKPIVoteAPI(APIView):
     class InputSerializer(serializers.Serializer):
-        kpi = serializers.IntegerField()
-        vote = serializers.BooleanField(allow_null=True, default=None)
+        kpi_id = serializers.IntegerField()
+        vote = serializers.IntegerField(allow_null=True, default=None)
 
     def post(self, request, proposal_id: int):
         serializer = self.InputSerializer(data=request.data)

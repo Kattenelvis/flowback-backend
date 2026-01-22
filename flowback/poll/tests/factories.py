@@ -1,9 +1,12 @@
+import random
+
 import factory
 from django.utils import timezone
 from future.backports.datetime import timedelta
 
 from flowback.common.tests import fake
-from flowback.group.tests.factories import GroupUserFactory, GroupUserDelegatePoolFactory, GroupTagsFactory
+from flowback.group.tests.factories import GroupUserFactory, GroupUserDelegatePoolFactory, GroupTagsFactory, \
+    GroupKPIFactory
 
 from flowback.poll.models import (Poll,
                                   PollProposal,
@@ -19,7 +22,7 @@ from flowback.poll.models import (Poll,
                                   PollPredictionStatementVote,
                                   PollAreaStatement,
                                   PollAreaStatementSegment,
-                                  PollAreaStatementVote)
+                                  PollAreaStatementVote, PollProposalKPIBet)
 from flowback.poll.tests.utils import generate_poll_phase_kwargs
 
 
@@ -144,6 +147,17 @@ class PollPredictionStatementVoteFactory(factory.django.DjangoModelFactory):
     prediction_statement = factory.SubFactory(PollPredictionStatementFactory)
     created_by = factory.SubFactory(GroupUserFactory)
     vote = factory.LazyAttribute(lambda _: fake.pybool())
+
+
+class PollProposalKPIBetFactory(factory.django.DjangoModelFactory):
+    class Meta:
+        model = PollProposalKPIBet
+
+    created_by = factory.SubFactory(GroupUserFactory)
+    proposal = factory.SubFactory(PollProposalFactory)
+    kpi = factory.SubFactory(GroupKPIFactory)
+    value = factory.LazyAttribute(lambda _: random.choice(factory.SelfAttribute('..kpi').values))
+    weight = factory.LazyAttribute(lambda _: random.randint(1, 999999))
 
 
 class PollAreaStatementFactory(factory.django.DjangoModelFactory):

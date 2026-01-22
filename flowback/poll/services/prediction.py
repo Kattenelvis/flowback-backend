@@ -254,10 +254,9 @@ def poll_proposal_kpi_bet(user_id: int,
     if not proposal.poll.version == 2:
         raise ValidationError('Poll does not support KPI')
 
-    if not proposal.poll.check_phase('dynamic', 'prediction_bet'):
-        raise ValidationError('Poll is not in phase for KPI betting')
+    proposal.poll.check_phase('dynamic', 'prediction_bet')
 
-    elif not len(values) == len(weights):
+    if not len(values) == len(weights):
         raise ValidationError("Values have more or less values than weights.")
 
     if any([i not in kpi.values for i in values]):
@@ -283,7 +282,7 @@ def poll_proposal_kpi_bet(user_id: int,
 def poll_proposal_kpi_vote(user_id: int,
                            proposal_id: int,
                            kpi_id: int,
-                           vote: bool = None) -> PollProposalKPIVote | None:
+                           vote: int = None) -> PollProposalKPIVote | None:
     proposal = PollProposal.objects.get(id=proposal_id, poll__active=True)
     group_user = group_user_permissions(user=user_id, group=proposal.created_by.group, permissions=['admin',
                                                                                                     'allow_vote'])
@@ -293,8 +292,7 @@ def poll_proposal_kpi_vote(user_id: int,
     if not proposal.poll.version == 2:
         raise ValidationError('Poll does not support KPI')
 
-    if not proposal.poll.check_phase('result'):
-        raise ValidationError('Poll is not in phase for KPI vote')
+    proposal.poll.check_phase('result')
 
     if not vote:
         PollProposalKPIVote.objects.get(created_by=group_user, proposal=proposal, kpi=kpi).delete()
