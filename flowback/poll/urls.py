@@ -22,7 +22,11 @@ from .views.prediction import (PollPredictionStatementListAPI,
                                PollPredictionBetDeleteAPI,
                                PollPredictionStatementVoteCreateAPI,
                                PollPredictionStatementVoteUpdateAPI,
-                               PollPredictionStatementVoteDeleteAPI)
+                               PollPredictionStatementVoteDeleteAPI,
+                               PollProposalKPIBetAPI,
+                               PollProposalKPIVoteAPI,
+                               PollProposalKPIBetListAPI,
+                               PollProposalKPIVoteListAPI)
 from .views.area import PollAreaStatementListAPI, PollAreaVoteAPI
 
 group_poll_patterns = [
@@ -32,6 +36,8 @@ group_poll_patterns = [
     path('template/create', PollPhaseTemplateCreateAPI.as_view(), name='poll_phase_template_create'),
     path('prediction/statement/list', PollPredictionStatementListAPI.as_view(), name='poll_prediction_statement_list'),
     path('prediction/bet/list', PollPredictionBetListAPI.as_view(), name='poll_prediction_bet_list'),
+    path('proposal/kpi/bet/list', PollProposalKPIBetListAPI.as_view(), name='poll_proposal_kpi_bet_list'),
+    path('proposal/kpi/vote/list', PollProposalKPIVoteListAPI.as_view(), name='poll_proposal_kpi_vote_list'),
 ]
 
 poll_patterns = [
@@ -78,6 +84,9 @@ poll_patterns = [
     path('prediction/<int:prediction_statement_id>/statement/vote/delete',
          PollPredictionStatementVoteDeleteAPI.as_view(),
          name='poll_prediction_statement_vote_delete'),
+
+    path('proposal/<int:proposal_id>/kpi/bet', PollProposalKPIBetAPI.as_view(), name='poll_proposal_kpi_bet'),
+    path('proposal/<int:proposal_id>/kpi/vote', PollProposalKPIVoteAPI.as_view(), name='poll_proposal_kpi_vote'),
 
     path('template/<int:template_id>/update', PollPhaseTemplateUpdateAPI.as_view(), name='poll_phase_template_update'),
     path('template/<int:template_id>/delete', PollPhaseTemplateDeleteAPI.as_view(), name='poll_phase_template_delete'),

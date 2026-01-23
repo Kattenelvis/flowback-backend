@@ -526,16 +526,19 @@ class PollPredictionBet(PredictionBet):
 class PollProposalKPIBet(BaseModel):
     created_by = models.ForeignKey(GroupUser, on_delete=models.CASCADE)
     proposal = models.ForeignKey(PollProposal, on_delete=models.CASCADE)
-    kpi = models.ForeignKey('group.GroupKPI', on_delete=models.CASCADE)
-    value = models.BigIntegerField(default=0)
+    kpi_value = models.ForeignKey('group.GroupKPIValue', on_delete=models.CASCADE)
     weight = models.IntegerField(default=0)
 
+    @property
+    def kpi(self):
+        return self.kpi_value.kpi
+
     def clean(self):
-        if not self.kpi.active:
+        if not self.kpi_value.kpi.active:
             raise ValidationError("KPI must be active")
 
     class Meta:
-        constraints = [models.UniqueConstraint(fields=['created_by', 'proposal', 'kpi', 'value'],
+        constraints = [models.UniqueConstraint(fields=['created_by', 'proposal', 'kpi_value'],
                                                name='unique_pollproposalkpibet')]
 
 

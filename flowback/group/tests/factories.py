@@ -14,7 +14,7 @@ from flowback.group.models import (Group,
                                    GroupUserDelegate,
                                    GroupUserDelegatePool,
                                    GroupUserDelegator, GroupThreadVote, WorkGroup, WorkGroupUser,
-                                   WorkGroupUserJoinRequest, GroupKPI)
+                                   WorkGroupUserJoinRequest, GroupKPI, GroupKPIValue)
 from flowback.kanban.models import KanbanEntry
 from flowback.user.tests.factories import UserFactory
 
@@ -136,4 +136,11 @@ class GroupKPIFactory(factory.django.DjangoModelFactory):
     name = factory.LazyAttribute(lambda _: fake.unique.first_name())
     description = factory.LazyAttribute(lambda _: fake.paragraph())
     active = True
-    values = factory.LazyAttribute(lambda _: [random.randint(0, 1000000) for _ in range(10)])
+
+
+class GroupKPIValueFactory(factory.django.DjangoModelFactory):
+    class Meta:
+        model = GroupKPIValue
+
+    kpi = factory.SubFactory(GroupKPIFactory)
+    value = factory.LazyAttribute(lambda _: random.randint(1, 999999))

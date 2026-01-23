@@ -12,7 +12,7 @@ from ..models import (PollPredictionBet,
                       PollPredictionStatementVote,
                       Poll, PollProposal, PollProposalKPIBet, PollProposalKPIVote)
 from ...common.services import get_object, model_update
-from ...group.models import GroupKPI
+from ...group.models import GroupKPI, GroupKPIValue
 from ...group.selectors.permission import group_user_permissions
 from ...user.models import User
 
@@ -247,8 +247,10 @@ def poll_proposal_kpi_bet(user_id: int,
     """
 
     proposal = PollProposal.objects.get(id=proposal_id, poll__active=True)
-    group_user = group_user_permissions(user=user_id, group=proposal.created_by.group, permissions=['admin',
-                                                                                                    'allow_vote'])
+    group_user = group_user_permissions(user=user_id,
+                                        group=proposal.created_by.group,
+                                        work_group=proposal.poll.work_group,
+                                        permissions=['admin', 'allow_vote'])
     kpi = GroupKPI.objects.get(id=kpi_id, group_id=group_user.group.id, active=True)
 
     if not proposal.poll.version == 2:
@@ -262,7 +264,7 @@ def poll_proposal_kpi_bet(user_id: int,
     if any([i not in kpi.values for i in values]):
         raise ValidationError("One or more KPI values does not exist in the KPI")
 
-    PollProposalKPIBet.objects.filter(created_by=group_user, kpi=kpi).delete()
+    PollProposalKPIBet.objects.filter(created_by=group_user, kpi_value__kpi=kpi).delete()
 
     if len(values) == 0:
         return []
@@ -271,8 +273,7 @@ def poll_proposal_kpi_bet(user_id: int,
     for i in range(len(values)):
         staged.append(PollProposalKPIBet(created_by=group_user,
                                          proposal=proposal,
-                                         kpi=kpi,
-                                         value=values[i],
+                                         kpi_value=GroupKPIValue.objects.get(kpi=kpi, value=values[i]),
                                          weight=weights[i]))
 
     bets = PollProposalKPIBet.objects.bulk_create(objs=staged)

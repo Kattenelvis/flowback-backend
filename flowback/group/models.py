@@ -549,4 +549,12 @@ class GroupKPI(BaseModel):
     name = models.CharField(max_length=255)
     description = models.TextField(null=True, blank=True)
     active = models.BooleanField(default=True)
-    values = ArrayField(models.BigIntegerField())
+
+    @property
+    def values(self) -> list[int]:
+        return list(GroupKPIValue.objects.filter(kpi_id=self.id).values_list('value', flat=True))
+
+
+class GroupKPIValue(BaseModel):
+    value = models.IntegerField()
+    kpi = models.ForeignKey(GroupKPI, on_delete=models.CASCADE)

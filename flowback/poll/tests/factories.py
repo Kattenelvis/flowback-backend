@@ -6,7 +6,7 @@ from future.backports.datetime import timedelta
 
 from flowback.common.tests import fake
 from flowback.group.tests.factories import GroupUserFactory, GroupUserDelegatePoolFactory, GroupTagsFactory, \
-    GroupKPIFactory
+    GroupKPIFactory, GroupKPIValueFactory
 
 from flowback.poll.models import (Poll,
                                   PollProposal,
@@ -155,8 +155,7 @@ class PollProposalKPIBetFactory(factory.django.DjangoModelFactory):
 
     created_by = factory.SubFactory(GroupUserFactory)
     proposal = factory.SubFactory(PollProposalFactory)
-    kpi = factory.SubFactory(GroupKPIFactory)
-    value = factory.LazyAttribute(lambda _: random.choice(factory.SelfAttribute('..kpi').values))
+    kpi_value = factory.SubFactory(GroupKPIValueFactory)
     weight = factory.LazyAttribute(lambda _: random.randint(1, 999999))
 
 
