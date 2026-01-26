@@ -7,6 +7,7 @@ from .views.group import (GroupFolderListApi, GroupListApi, GroupDetailApi, Grou
                           WorkGroupUserLeaveAPI,
                           WorkGroupUserAddAPI, WorkGroupUserUpdateAPI, WorkGroupUserRemoveAPI,
                           GroupNotificationSubscribeAPI)
+from .views.kpi import GroupKPIListAPI, GroupKPICreateAPI, GroupKPIUpdateAPI
 from .views.user import (GroupUserListApi,
                          GroupUserUpdateApi,
                          GroupJoinApi,
@@ -143,6 +144,10 @@ group_patterns = [
     path('<int:group_id>/schedule/event/create', GroupScheduleEventCreateAPI.as_view(), name='group_schedule_event_create'),
     path('<int:group_id>/schedule/event/update', GroupScheduleEventUpdateAPI.as_view(), name='group_schedule_event_update'),
     path('<int:group_id>/schedule/event/delete', GroupScheduleEventDeleteAPI.as_view(), name='group_schedule_event_delete'),
+
+    path('<int:group_id>/kpi/list', GroupKPIListAPI.as_view(), name='group_kpi_list'),
+    path('<int:group_id>/kpi/create', GroupKPICreateAPI.as_view(), name='group_kpi_create'),
+    path('<int:group_id>/kpi/update', GroupKPIUpdateAPI.as_view(), name='group_kpi_update'),
 
     path('thread/list', GroupThreadListAPI.as_view(), name='group_thread'),
     path('<int:group_id>/thread/create', GroupThreadCreateAPI.as_view(), name='group_thread_create'),

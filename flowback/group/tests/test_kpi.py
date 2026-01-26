@@ -6,7 +6,7 @@ from flowback.group.tests.factories import GroupUserFactory, GroupKPIFactory, Gr
 from flowback.group.views.kpi import GroupKPIListAPI, GroupKPICreateAPI, GroupKPIUpdateAPI
 
 
-# TODO test Group KPI (create, update)
+# TODO fix tests
 class GroupKPITest(APITestCase):
     def setUp(self):
         self.group = GroupFactory()
@@ -30,6 +30,18 @@ class GroupKPITest(APITestCase):
 
         self.assertEqual(response.status_code, 201, response.data)
         self.assertEqual(GroupKPI.objects.all().count(), 1)
+
+    def test_group_kpi_create_duplicates(self):
+        data = dict(name="test", description="test", values="1,9,19,39,77,77,1745")
+
+        response = generate_request(api=GroupKPICreateAPI,
+                                    url_params=dict(group_id=self.group.id),
+                                    data=data,
+                                    user=self.group_user_creator.user)
+
+        self.assertEqual(response.status_code, 400, response.data)
+        self.assertEqual(GroupKPI.objects.all().count(), 0)
+
 
     def test_group_kpi_create_not_admin(self):
         data = dict(name="test", description="test", values="1,9,19,39,77,1745")

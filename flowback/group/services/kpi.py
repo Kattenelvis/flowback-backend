@@ -1,13 +1,21 @@
+from rest_framework.exceptions import ValidationError
+
 from .permission import group_user_permissions
-from ..models import GroupKPI
+from ..models import GroupKPI, GroupKPIValue
 
 
 def group_kpi_create(user_id: int, group_id: int, name: str, values: list[int], description: str = None):
     group_user_permissions(user=user_id, group=group_id, permissions=['admin'])
 
-    kpi = GroupKPI(group_id=group_id, name=name, values=values, description=description)
+    if len(values) != len(set(values)):
+        raise ValidationError("Duplicates in values are not permitted")
+
+    kpi = GroupKPI(group_id=group_id, name=name, description=description)
     kpi.full_clean()
     kpi.save()
+
+    kpi_values = [GroupKPIValue(kpi=kpi, value=i) for i in values]
+    GroupKPIValue.objects.bulk_create(kpi_values)
 
     return kpi
 
