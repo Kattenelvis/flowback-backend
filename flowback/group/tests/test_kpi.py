@@ -6,7 +6,6 @@ from flowback.group.tests.factories import GroupUserFactory, GroupKPIFactory, Gr
 from flowback.group.views.kpi import GroupKPIListAPI, GroupKPICreateAPI, GroupKPIUpdateAPI
 
 
-# TODO fix tests
 class GroupKPITest(APITestCase):
     def setUp(self):
         self.group = GroupFactory()
