@@ -33,6 +33,7 @@ class GroupUserFactory(factory.django.DjangoModelFactory):
         model = GroupUser
 
     user = factory.SubFactory(UserFactory)
+    group = factory.SubFactory(GroupFactory)
     is_admin = factory.LazyAttribute(lambda o: o.user.id == o.group.created_by.id)
 
 

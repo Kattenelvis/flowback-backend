@@ -1,7 +1,7 @@
 import random
 from celery import shared_task
 from django.db import models
-from django.db.models import Count, Q, Sum, OuterRef, Case, When, F, Subquery, Max
+from django.db.models import Count, Q, Sum, OuterRef, Case, When, F, Subquery, Max, QuerySet
 from django.db.models.functions import Cast
 from django.utils import timezone
 
@@ -13,7 +13,7 @@ from flowback.group.selectors.tags import group_tags_list
 from flowback.notification.models import NotificationChannel
 from flowback.poll.models import Poll, PollAreaStatement, PollPredictionBet, PollPredictionStatement, \
     PollDelegateVoting, PollVotingTypeRanking, PollProposal, PollVoting, \
-    PollVotingTypeCardinal, PollVotingTypeForAgainst
+    PollVotingTypeCardinal, PollVotingTypeForAgainst, PollProposalKPI
 
 import numpy as np
 
@@ -46,14 +46,14 @@ def poll_area_vote_count(poll_id: int):
             f'Tag: {tag.name} has won with {statement.pollareastatementvote_set.all().count()} points.'}")
 
 
+def dprint(*args, **kwargs):
+    if DEBUG:
+        print(*args, **kwargs)
+
+
 @shared_task
 def poll_prediction_bet_count(poll_id: int):
     # For one prediction, assuming no bias and stationary predictors
-
-    def dprint(*args, **kwargs):
-        if DEBUG:
-            print(*args, **kwargs)
-
     # Get every predictor participating in poll
     timestamp = timezone.now()  # Avoid new bets causing list to be offset
     poll = Poll.objects.get(id=poll_id)
@@ -79,7 +79,6 @@ def poll_prediction_bet_count(poll_id: int):
 
     previous_outcomes = list(statements.filter(~Q(poll=poll) & Q(outcome_scores__isnull=False)
                                                ).values_list('outcome_scores', flat=True))
-    previous_outcome_avg = 0 if len(previous_outcomes) == 0 else sum(previous_outcomes) / len(previous_outcomes)
     poll_statements = statements.filter(poll=poll).all().values_list('id', flat=True)
 
     # Get group users associated with the relevant poll
@@ -158,9 +157,6 @@ def poll_prediction_bet_count(poll_id: int):
     # Get list of bets in the given poll, ordered
     #   - if any bet missing, dismiss count
 
-    # Small decimal (AT LEAST a magnitude below 10^(-6))
-    small_decimal = 10 ** -7
-
     # Current bets by each predictor for one given statement, in order # TODO Loke check this
     #   (first equal to predictor 1 bets, 2 to 2 bets etc.)
     # IMPORTANT: do not append the current bet until AFTER the combined bet has been calculated
@@ -204,10 +200,45 @@ def poll_prediction_bet_count(poll_id: int):
     dprint("Previous Outcomes:", previous_outcomes)
     dprint("Previous Bets:", previous_bets)
 
-    dprint("Total Statement:", len(poll_statements))
+    dprint("Total Statement:", statements.filter(poll=poll).all().count())
+
+    calculate_combined_bet(poll_statements=statements.filter(poll=poll).all(),
+                           current_bets=current_bets,
+                           previous_bets=previous_bets,
+                           previous_outcomes=previous_outcomes)
+
+    poll.status_prediction = 1
+    poll.save()
+
+    notify_poll(message="Poll prediction phase has ended and results have been counted",
+                action=NotificationChannel.Action.UPDATED,
+                poll=poll)
+
+
+def calculate_combined_bet(poll_statements: QuerySet[PollPredictionStatement] | QuerySet[PollProposalKPI],
+                           current_bets: list[list[float | None]],
+                           previous_outcomes: list[float],
+                           previous_bets: list[list[float | None]]):
+    """
+    :param poll_statements: Queryset of valid statements
+
+    :param current_bets: List of current bets in the form of [user[bet, ... bet], ...].
+    Bets must match the order of poll_statements
+
+    :param previous_bets: List of previous bets in the form of [user[bet, ... bet], ...].
+     Bets must match the order of previous_outcomes
+
+    :param previous_outcomes: List of previous outcomes, set to 0.5 if undecided.
+
+    :return: None
+    """
+
+    # Small decimal (AT LEAST a magnitude below 10^(-6))
+    small_decimal = 10 ** -7
+
+    previous_outcome_avg = 0 if len(previous_outcomes) == 0 else sum(previous_outcomes) / len(previous_outcomes)
 
     # Calculation below
-    # for i, statement in enumerate(poll_statements):
     for i, statement in enumerate(poll_statements):
         bias_adjustments = []
         predictor_errors = []
@@ -217,7 +248,8 @@ def poll_prediction_bet_count(poll_id: int):
         if len(previous_bets) == 0 or len(previous_bets[0]) == 0:
             combined_bet = None if all(bets[i] is None for bets in current_bets) else (sum(main_bets)) / len(main_bets)
             dprint(f"No previous bets found, returning {combined_bet}")
-            PollPredictionStatement.objects.filter(id=statement).update(combined_bet=combined_bet)
+            statement.combined_bet = combined_bet
+            statement.save()
 
             continue
 
@@ -332,14 +364,8 @@ def poll_prediction_bet_count(poll_id: int):
 
         dprint(combined_bet)
 
-        PollPredictionStatement.objects.filter(id=statement).update(combined_bet=combined_bet)
-
-    poll.status_prediction = 1
-    poll.save()
-
-    notify_poll(message="Poll prediction phase has ended and results have been counted",
-                action=NotificationChannel.Action.UPDATED,
-                poll=poll)
+        statement.combined_bet = combined_bet
+        statement.save()
 
 
 @shared_task

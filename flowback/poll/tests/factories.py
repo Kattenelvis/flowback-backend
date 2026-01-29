@@ -115,7 +115,7 @@ class PollPredictionStatementFactory(factory.django.DjangoModelFactory):
     class Meta:
         model = PollPredictionStatement
 
-    created_by = factory.SubFactory(GroupUserFactory)
+    created_by = factory.SubFactory(GroupUserFactory, group=factory.SelfAttribute('..poll.created_by.group'))
     poll = factory.SubFactory(PollFactory, **generate_poll_phase_kwargs('proposal'))
     title = factory.LazyAttribute(lambda _: fake.name())
     description = factory.LazyAttribute(lambda _: fake.bs())
