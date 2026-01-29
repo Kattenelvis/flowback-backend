@@ -22,7 +22,7 @@ from flowback.poll.models import (Poll,
                                   PollPredictionStatementVote,
                                   PollAreaStatement,
                                   PollAreaStatementSegment,
-                                  PollAreaStatementVote, PollProposalKPIBet)
+                                  PollAreaStatementVote, PollProposalKPIBet, PollProposalKPI)
 from flowback.poll.tests.utils import generate_poll_phase_kwargs
 
 
@@ -149,13 +149,20 @@ class PollPredictionStatementVoteFactory(factory.django.DjangoModelFactory):
     vote = factory.LazyAttribute(lambda _: fake.pybool())
 
 
+class PollProposalKPIFactory(factory.django.DjangoModelFactory):
+    class Meta:
+        model = PollProposalKPI
+
+    proposal = factory.SubFactory(PollProposalFactory)
+    kpi_value = factory.SubFactory(GroupKPIValueFactory)
+
+
 class PollProposalKPIBetFactory(factory.django.DjangoModelFactory):
     class Meta:
         model = PollProposalKPIBet
 
     created_by = factory.SubFactory(GroupUserFactory)
-    proposal = factory.SubFactory(PollProposalFactory)
-    kpi_value = factory.SubFactory(GroupKPIValueFactory)
+    proposal_kpi = factory.SubFactory(PollProposalKPIFactory)
     weight = factory.LazyAttribute(lambda _: random.randint(1, 999999))
 
 

@@ -1,13 +1,13 @@
 from rest_framework.test import APITestCase
 
 from flowback.common.tests import generate_request
-from flowback.group.models import GroupKPIValue
 from flowback.group.tests.factories import GroupFactory, GroupUserFactory, GroupKPIFactory, GroupKPIValueFactory
-from flowback.poll.models import PollProposalKPIVote, PollProposalKPIBet, Poll
+from flowback.poll.models import PollProposalKPIVote, PollProposalKPIBet, Poll, PollProposalKPI
 from flowback.poll.tests.factories import PollFactory, PollProposalFactory, PollProposalKPIBetFactory
 from flowback.poll.tests.utils import generate_poll_phase_kwargs
 from flowback.poll.views.prediction import PollProposalKPIBetAPI, PollProposalKPIVoteAPI, PollProposalKPIBetListAPI, \
     PollProposalKPIVoteListAPI
+from flowback.poll.views.proposal import PollProposalCreateAPI
 
 
 class TestPollProposalKPI(APITestCase):
@@ -29,6 +29,18 @@ class TestPollProposalKPI(APITestCase):
                                                                                                      poll=self.poll,
                                                                                                      created_by=self.group_user_one)
 
+    def test_proposal_create_kpi(self):
+        Poll.objects.filter(id=self.poll.id).update(**generate_poll_phase_kwargs('proposal'))
+        self.assertEqual(PollProposalKPI.objects.all().count(), 18)
+
+        response = generate_request(api=PollProposalCreateAPI,
+                                    user=self.group_user_one.user,
+                                    url_params=dict(poll=self.poll.id),
+                                    data=dict(title="hi", description="there"))
+
+        self.assertEqual(response.status_code, 200, response.data)
+        self.assertEqual(PollProposalKPI.objects.all().count(), 24)
+
     def test_kpi_bet(self):
         values = [12, 22, 29]
         weights = [19, 70, 2]
@@ -44,7 +56,7 @@ class TestPollProposalKPI(APITestCase):
 
         for i in range(3):
             self.assertTrue(PollProposalKPIBet.objects.filter(created_by=self.group_user_one,
-                                                              kpi_value__value=values[i],
+                                                              proposal_kpi__kpi_value__value=values[i],
                                                               weight=weights[i]).exists(),
                             f"KPI bet with value {values[i]} and weight {weights[i]} does not exist!")
 
@@ -52,8 +64,7 @@ class TestPollProposalKPI(APITestCase):
         bets = [(self.group_kpi_one, 12), (self.group_kpi_one, 22), (self.group_kpi_two, 99)]
         for i in range(3):
             PollProposalKPIBetFactory(created_by=self.group_user_one,
-                                      proposal=self.proposal_one,
-                                      kpi_value=GroupKPIValue.objects.get(kpi=bets[i][0], value=bets[i][1]))
+                                      proposal_kpi=PollProposalKPI.objects.get(proposal=self.proposal_one, kpi_value__value=bets[i][1]))
 
         Poll.objects.filter(id=self.poll.id).update(**generate_poll_phase_kwargs('prediction_vote'))
         response = generate_request(api=PollProposalKPIVoteAPI,
@@ -66,8 +77,8 @@ class TestPollProposalKPI(APITestCase):
         self.assertTrue(PollProposalKPIVote.objects.filter(created_by=self.group_user_two, vote=22).exists())
 
     def test_kpi_bet_list(self):
-        [PollProposalKPIBetFactory(kpi_value=GroupKPIValue.objects.get(kpi=self.group_kpi_one, value=i),
-                                   proposal=self.proposal_one,
+        [PollProposalKPIBetFactory(proposal_kpi=PollProposalKPI.objects.get(proposal=self.proposal_one,
+                                                                            kpi_value__value=i),
                                    created_by=self.group_user_one) for i in [12, 22, 29]]
 
         response = generate_request(api=PollProposalKPIBetListAPI,
@@ -79,9 +90,10 @@ class TestPollProposalKPI(APITestCase):
         self.assertEqual(response.data['count'], 3)
 
     def test_kpi_vote_list(self):
-        [PollProposalKPIBetFactory(kpi_value=GroupKPIValue.objects.get(kpi=self.group_kpi_one, value=i),
-                                   proposal=self.proposal_one,
-                                   created_by=self.group_user_one) for i in [12, 22, 29]]
+        for i in [12, 22, 29]:
+            PollProposalKPIBetFactory(proposal_kpi=PollProposalKPI.objects.get(proposal=self.proposal_one,
+                                                                               kpi_value__value=i),
+                                      created_by=self.group_user_one)
 
         Poll.objects.filter(id=self.poll.id).update(**generate_poll_phase_kwargs('prediction_vote'))
 

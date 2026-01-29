@@ -18,7 +18,7 @@ from flowback.prediction.models import (PredictionBet,
                                         PredictionStatementVote)
 from flowback.common.models import BaseModel
 from flowback.common.validators import FieldNotBlankValidator
-from flowback.group.models import GroupUser, GroupUserDelegatePool, GroupTags, WorkGroup
+from flowback.group.models import GroupUser, GroupUserDelegatePool, GroupTags, WorkGroup, GroupKPIValue
 from flowback.comment.models import CommentSection, comment_section_create_model_default
 import pgtrigger
 
@@ -523,22 +523,54 @@ class PollPredictionBet(PredictionBet):
             prediction_statement__pollpredictionstatementsegment__proposal=instance).delete()
 
 
-class PollProposalKPIBet(BaseModel):
-    created_by = models.ForeignKey(GroupUser, on_delete=models.CASCADE)
+class PollProposalKPI(BaseModel):
     proposal = models.ForeignKey(PollProposal, on_delete=models.CASCADE)
     kpi_value = models.ForeignKey('group.GroupKPIValue', on_delete=models.CASCADE)
+    combined_bet = models.DecimalField(max_digits=8, decimal_places=7, null=True, blank=True)
+    outcome = models.BooleanField(default=False, null=True, blank=True)
+
+    @classmethod
+    def generate_kpis(self, proposal_id: int) -> None:
+        """
+        Generates KPI's for a poll proposal
+        :param proposal_id: The ID of the proposal
+        :return: None
+        """
+        proposal = PollProposal.objects.get(id=proposal_id)
+        proposal_kpi = list(PollProposalKPI.objects.filter(id=proposal_id).values_list('kpi_value_id', flat=True))
+        kpi_values = GroupKPIValue.objects.filter(kpi__group=proposal.poll.created_by.group,
+                                                  kpi__active=True).exclude(id__in=proposal_kpi)
+
+        data = [PollProposalKPI(proposal_id=proposal_id, kpi_value=i) for i in kpi_values]
+        PollProposalKPI.objects.bulk_create(data)
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=['proposal', 'kpi_value'], name='unique_pollproposalkpi')]
+
+
+class PollProposalKPIBet(BaseModel):
+    created_by = models.ForeignKey(GroupUser, on_delete=models.CASCADE)
+    proposal_kpi = models.ForeignKey(PollProposalKPI, on_delete=models.CASCADE)
     weight = models.IntegerField(default=0)
 
     @property
+    def proposal(self):
+        return self.proposal_kpi.proposal
+
+    @property
     def kpi(self):
-        return self.kpi_value.kpi
+        return self.proposal_kpi.kpi_value.kpi
+
+    @property
+    def kpi_value(self):
+        return self.proposal_kpi.kpi_value
 
     def clean(self):
-        if not self.kpi_value.kpi.active:
+        if not self.proposal_kpi.kpi_value.kpi.active:
             raise ValidationError("KPI must be active")
 
     class Meta:
-        constraints = [models.UniqueConstraint(fields=['created_by', 'proposal', 'kpi_value'],
+        constraints = [models.UniqueConstraint(fields=['created_by', 'proposal_kpi'],
                                                name='unique_pollproposalkpibet')]
 
 

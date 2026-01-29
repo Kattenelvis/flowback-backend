@@ -10,7 +10,7 @@ from ..models import (PollPredictionBet,
                       PollPredictionStatement,
                       PollPredictionStatementSegment,
                       PollPredictionStatementVote,
-                      Poll, PollProposal, PollProposalKPIBet, PollProposalKPIVote)
+                      Poll, PollProposal, PollProposalKPIBet, PollProposalKPIVote, PollProposalKPI)
 from ...common.services import get_object, model_update
 from ...group.models import GroupKPI, GroupKPIValue
 from ...group.selectors.permission import group_user_permissions
@@ -264,7 +264,7 @@ def poll_proposal_kpi_bet(user_id: int,
     if any([i not in kpi.values for i in values]):
         raise ValidationError("One or more KPI values does not exist in the KPI")
 
-    PollProposalKPIBet.objects.filter(created_by=group_user, kpi_value__kpi=kpi).delete()
+    PollProposalKPIBet.objects.filter(created_by=group_user, proposal_kpi__kpi_value__kpi=kpi).delete()
 
     if len(values) == 0:
         return []
@@ -272,9 +272,10 @@ def poll_proposal_kpi_bet(user_id: int,
     staged = []
     for i in range(len(values)):
         staged.append(PollProposalKPIBet(created_by=group_user,
-                                         proposal=proposal,
-                                         kpi_value=GroupKPIValue.objects.get(kpi=kpi, value=values[i]),
-                                         weight=weights[i]))
+                                         weight=weights[i],
+                                         proposal_kpi=PollProposalKPI.objects.get(proposal=proposal,
+                                                                                  kpi_value__kpi=kpi,
+                                                                                  kpi_value__value=values[i])))
 
     bets = PollProposalKPIBet.objects.bulk_create(objs=staged)
     return bets

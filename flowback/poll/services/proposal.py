@@ -3,7 +3,7 @@ from rest_framework.exceptions import ValidationError
 from flowback.common.services import get_object
 from flowback.files.services import upload_collection
 from flowback.group.selectors.permission import group_user_permissions
-from flowback.poll.models import PollProposal, Poll, PollProposalTypeSchedule
+from flowback.poll.models import PollProposal, Poll, PollProposalTypeSchedule, PollProposalKPI
 
 
 def poll_proposal_create(*, user_id: int,
@@ -13,7 +13,7 @@ def poll_proposal_create(*, user_id: int,
                          attachments=None,
                          blockchain_id: int = None,
                          **data) -> PollProposal:
-    poll = get_object(Poll, id=poll_id)
+    poll = Poll.objects.get(id=poll_id)
     group_user = group_user_permissions(user=user_id, group=poll.created_by.group.id,
                                         permissions=['create_proposal', 'admin'])
 
