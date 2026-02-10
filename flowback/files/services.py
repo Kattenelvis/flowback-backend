@@ -69,11 +69,12 @@ def update_collection(*, user_id: int = None,
                       upload_to="",
                       upload_to_uuid=True,
                       upload_to_include_timestamp=True):
-    file_collection = FileCollection.objects.get(id=file_collection_id)
     user = User.objects.get(id=user_id) if user_id else None
 
     if not (attachments_add or attachments_remove):
         return
+
+    file_collection = FileCollection.objects.get(id=file_collection_id)
 
     if user:
         if file_collection.created_by_id != user_id and user.is_staff and attachments_add:
@@ -82,7 +83,7 @@ def update_collection(*, user_id: int = None,
         elif not user.is_staff and file_collection.created_by_id != user_id:
             raise ValidationError("Only the author of the attachment can update it.")
 
-    if (file_collection.filesegment_set.count() + (len(attachments_add) or 0) - (len(attachments_remove) or 0)) > 10:
+    if (file_collection.filesegment_set.count() + (len(attachments_add or [])) - (len(attachments_remove or []))) > 10:
         raise ValidationError("Cannot add more than 10 attachments.")
 
     if attachments_remove:

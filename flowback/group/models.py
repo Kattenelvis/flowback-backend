@@ -243,6 +243,7 @@ class Group(BaseModel, NotifiableModel, ScheduleModel):
     def post_delete(cls, instance, *args, **kwargs):
         instance.kanban.delete()
         instance.chat.delete()
+        instance.schedule.delete()
 
 
 pre_save.connect(Group.pre_save, sender=Group)
@@ -298,10 +299,15 @@ class GroupUser(BaseModel):
     @classmethod
     def pre_save(cls, instance, raw, using, update_fields, *args, **kwargs):
         if instance.pk is None:
-            # Joins the chatroom associated with the poll
-            participant = MessageChannelParticipant(user=instance.user, channel=instance.group.chat)
-            participant.save()
 
+            # Reuse existing participant if user previously left and is rejoining
+            participant, created = MessageChannelParticipant.objects.get_or_create(
+                user=instance.user,
+                channel=instance.group.chat,
+            )
+
+            participant.active = True
+            participant.save()
             instance.chat_participant = participant
 
     @classmethod
@@ -311,13 +317,9 @@ class GroupUser(BaseModel):
             subscription = KanbanSubscription(kanban_id=instance.user.kanban_id, target_id=instance.group.kanban_id)
             subscription.save()
 
-
         elif update_fields and 'active' in update_fields:
             if instance.active:
                 instance.group.schedule.add_user(user=instance.user)
-
-                subscription = KanbanSubscription(kanban_id=instance.user.kanban_id, target_id=instance.group.kanban_id)
-                subscription.save()
 
                 instance.chat_participant.active = True
                 instance.chat_participant.save()
@@ -336,12 +338,12 @@ class GroupUser(BaseModel):
 
     @classmethod
     def post_delete(cls, instance, *args, **kwargs):
-        instance.schedule.remove_user(user=instance)
         KanbanSubscription.objects.filter(kanban_id=instance.user.kanban_id,
                                           target_id=instance.group.kanban_id).delete()
 
         if instance.chat_participant:
-            instance.chat_participant.delete()
+            instance.chat_participant.active = False
+            instance.chat_participant.save()
 
         if instance.group.notification_channel:
             instance.group.notification_channel.unsubscribe_all(user=instance.user)
@@ -389,9 +391,16 @@ class WorkGroupUser(BaseModel):
     @classmethod
     def pre_save(cls, instance, raw, using, update_fields, *args, **kwargs):
         if instance.pk is None:
-            # Joins the chatroom associated with the workgroup
-            participant = MessageChannelParticipant(user=instance.group_user.user, channel=instance.work_group.chat)
-            participant.save()
+            # Reuse existing participant if user previously left and is rejoining
+            participant, created = MessageChannelParticipant.objects.get_or_create(
+                user=instance.group_user.user,
+                channel=instance.work_group.chat,
+                defaults={'active': True}
+            )
+            if not created:
+                # Joins the chatroom associated with the workgroup
+                participant.active = True
+                participant.save()
 
             instance.chat_participant = participant
 
@@ -409,7 +418,8 @@ class WorkGroupUser(BaseModel):
 
     @classmethod
     def post_delete(cls, instance, *args, **kwargs):
-        instance.chat_participant.delete()  # Leave chatroom
+        instance.chat_participant.active = False  # Leave chatroom
+        instance.chat_participant.save()
         instance.work_group.schedule.remove_user(user=instance.group_user.user)
 
     class Meta:
@@ -442,7 +452,6 @@ class GroupThread(BaseModel, NotifiableModel):
     attachments = models.ForeignKey(FileCollection, on_delete=models.CASCADE, null=True, blank=True)
     work_group = models.ForeignKey(WorkGroup, on_delete=models.SET_NULL, null=True, blank=True)
     public = models.BooleanField(default=False)
-
 
     @property
     def notification_data(self) -> dict | None:
