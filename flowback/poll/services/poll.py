@@ -1,6 +1,6 @@
 from rest_framework.exceptions import ValidationError
 
-from backend.settings import DEBUG
+from backend.settings import DEBUG, FLOWBACK_POLL_VERSION_LOCK
 from flowback.common.services import get_object, model_update
 from flowback.files.services import upload_collection
 from flowback.group.notify import notify_group_poll
@@ -41,6 +41,10 @@ def poll_create(*, user_id: int,
                 quorum: int = None,
                 work_group_id: int = None
                 ) -> Poll:
+
+    if FLOWBACK_POLL_VERSION_LOCK is not None and version != FLOWBACK_POLL_VERSION_LOCK:
+        raise ValidationError("Poll version is not permitted in this flowback instance.")
+
     group_user = group_user_permissions(user=user_id,
                                         group=group_id,
                                         permissions=['create_poll', 'admin'],
