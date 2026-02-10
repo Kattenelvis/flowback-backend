@@ -6,8 +6,10 @@ from backend.settings import (DEBUG,
                               FLOWBACK_GROUP_ADMIN_USER_LIST_ACCESS_ONLY,
                               FLOWBACK_DEFAULT_GROUP_JOIN,
                               FLOWBACK_DISABLE_DEFAULT_USER_REGISTRATION,
-                              GIT_HASH, DEBUG_REGISTER_BYPASS_EMAIL_VERIFICATION,
-                              )
+                              GIT_HASH,
+                              DEBUG_REGISTER_BYPASS_EMAIL_VERIFICATION,
+                              FLOWBACK_KPI_MAX_WEIGHT,
+                              FLOWBACK_POLL_VERSION_LOCK)
 
 
 def get_public_config():
@@ -22,7 +24,8 @@ def get_public_config():
         FLOWBACK_DEFAULT_GROUP_JOIN=FLOWBACK_DEFAULT_GROUP_JOIN,
         FLOWBACK_DISABLE_DEFAULT_USER_REGISTRATION=FLOWBACK_DISABLE_DEFAULT_USER_REGISTRATION,
         GIT_HASH=GIT_HASH,
-
+        FLOWBACK_KPI_MAX_WEIGHT=FLOWBACK_KPI_MAX_WEIGHT,
+        FLOWBACK_POLL_VERSION_LOCK=FLOWBACK_POLL_VERSION_LOCK
     )
 
     return data

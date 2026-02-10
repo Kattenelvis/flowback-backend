@@ -39,7 +39,8 @@ class PollPredictionStatementTest(APITestCase):
 
         self.poll = PollFactory(created_by=self.user_group_creator,
                                 poll_type=4,
-                                dynamic=True,
+                                version=1,
+                                dynamic=False,
                                 tag=GroupTagsFactory(group=self.user_group_creator.group),
                                 **generate_poll_phase_kwargs('prediction_statement'))
         (self.proposal_one,

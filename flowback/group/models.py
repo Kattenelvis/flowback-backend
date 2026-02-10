@@ -1,6 +1,7 @@
 import logging
 import uuid
 
+from django.contrib.postgres.fields import ArrayField
 from django.core.validators import MinValueValidator, MaxValueValidator
 from django.db.models import Q
 from django.db.models.signals import post_save, post_delete, pre_save
@@ -257,8 +258,6 @@ class GroupTags(BaseModel):
     description = models.TextField(null=True, blank=True, validators=[FieldNotBlankValidator])
     group = models.ForeignKey('Group', on_delete=models.CASCADE)
     active = models.BooleanField(default=True)
-
-    # interval_mean_absolute_error = models.DecimalField(max_digits=14, decimal_places=4, null=True, blank=True)
 
     class Meta:
         verbose_name_plural = 'Group tags'
@@ -552,3 +551,19 @@ class GroupUserDelegator(BaseModel):
 
     class Meta:
         unique_together = ('delegator', 'delegate_pool', 'group')
+
+
+class GroupKPI(BaseModel):
+    group = models.ForeignKey(Group, on_delete=models.CASCADE)
+    name = models.CharField(max_length=255)
+    description = models.TextField(null=True, blank=True)
+    active = models.BooleanField(default=True)
+
+    @property
+    def values(self) -> list[int]:
+        return list(GroupKPIValue.objects.filter(kpi_id=self.id).values_list('value', flat=True))
+
+
+class GroupKPIValue(BaseModel):
+    value = models.IntegerField()
+    kpi = models.ForeignKey(GroupKPI, on_delete=models.CASCADE)

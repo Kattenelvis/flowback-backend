@@ -1,9 +1,12 @@
+import random
+
 import factory
 from django.utils import timezone
 from future.backports.datetime import timedelta
 
 from flowback.common.tests import fake
-from flowback.group.tests.factories import GroupUserFactory, GroupUserDelegatePoolFactory, GroupTagsFactory
+from flowback.group.tests.factories import GroupUserFactory, GroupUserDelegatePoolFactory, GroupTagsFactory, \
+    GroupKPIFactory, GroupKPIValueFactory
 
 from flowback.poll.models import (Poll,
                                   PollProposal,
@@ -19,7 +22,7 @@ from flowback.poll.models import (Poll,
                                   PollPredictionStatementVote,
                                   PollAreaStatement,
                                   PollAreaStatementSegment,
-                                  PollAreaStatementVote)
+                                  PollAreaStatementVote, PollProposalKPIBet, PollProposalKPI, PollProposalKPIVote)
 from flowback.poll.tests.utils import generate_poll_phase_kwargs
 
 
@@ -112,7 +115,7 @@ class PollPredictionStatementFactory(factory.django.DjangoModelFactory):
     class Meta:
         model = PollPredictionStatement
 
-    created_by = factory.SubFactory(GroupUserFactory)
+    created_by = factory.SubFactory(GroupUserFactory, group=factory.SelfAttribute('..poll.created_by.group'))
     poll = factory.SubFactory(PollFactory, **generate_poll_phase_kwargs('proposal'))
     title = factory.LazyAttribute(lambda _: fake.name())
     description = factory.LazyAttribute(lambda _: fake.bs())
@@ -144,6 +147,31 @@ class PollPredictionStatementVoteFactory(factory.django.DjangoModelFactory):
     prediction_statement = factory.SubFactory(PollPredictionStatementFactory)
     created_by = factory.SubFactory(GroupUserFactory)
     vote = factory.LazyAttribute(lambda _: fake.pybool())
+
+
+class PollProposalKPIFactory(factory.django.DjangoModelFactory):
+    class Meta:
+        model = PollProposalKPI
+
+    proposal = factory.SubFactory(PollProposalFactory)
+    kpi_value = factory.SubFactory(GroupKPIValueFactory)
+
+
+class PollProposalKPIBetFactory(factory.django.DjangoModelFactory):
+    class Meta:
+        model = PollProposalKPIBet
+
+    created_by = factory.SubFactory(GroupUserFactory)
+    proposal_kpi = factory.SubFactory(PollProposalKPIFactory)
+    weight = factory.LazyAttribute(lambda _: random.randint(1, 999999))
+
+
+class PollProposalKPIVoteFactory(factory.django.DjangoModelFactory):
+    class Meta:
+        model = PollProposalKPIVote
+
+    created_by = factory.SubFactory(GroupUserFactory)
+    proposal_kpi = factory.SubFactory(PollProposalKPIFactory)
 
 
 class PollAreaStatementFactory(factory.django.DjangoModelFactory):

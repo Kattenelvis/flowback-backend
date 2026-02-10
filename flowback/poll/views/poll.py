@@ -178,6 +178,7 @@ class PollCreateAPI(APIView):
                       'end_date',
                       'schedule_poll_meeting_link',
                       'poll_type',
+                      'version',
                       'blockchain_id',
                       'public',
                       'allow_fast_forward',

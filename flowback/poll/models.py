@@ -2,14 +2,14 @@ from datetime import datetime
 
 from django.core.validators import MinValueValidator, MaxValueValidator
 from django.db import models
-from django.db.models import Q, F, Count
-from django.db.models.signals import post_save, post_delete
+from django.db.models import Q, F, Count, Sum
+from django.db.models.signals import post_save, post_delete, pre_save
 from django.dispatch import receiver
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 from rest_framework.exceptions import ValidationError
 
-from backend.settings import FLOWBACK_SCORE_VOTE_CEILING, FLOWBACK_SCORE_VOTE_FLOOR, DEBUG
+from backend.settings import FLOWBACK_SCORE_VOTE_CEILING, FLOWBACK_SCORE_VOTE_FLOOR, DEBUG, FLOWBACK_KPI_MAX_WEIGHT
 from flowback.files.models import FileCollection
 from flowback.notification.models import NotifiableModel, NotificationChannel
 from flowback.prediction.models import (PredictionBet,
@@ -18,7 +18,7 @@ from flowback.prediction.models import (PredictionBet,
                                         PredictionStatementVote)
 from flowback.common.models import BaseModel
 from flowback.common.validators import FieldNotBlankValidator
-from flowback.group.models import GroupUser, GroupUserDelegatePool, GroupTags, WorkGroup
+from flowback.group.models import GroupUser, GroupUserDelegatePool, GroupTags, WorkGroup, GroupKPIValue
 from flowback.comment.models import CommentSection, comment_section_create_model_default
 import pgtrigger
 
@@ -39,6 +39,7 @@ class Poll(BaseModel, NotifiableModel):
     description = models.TextField(null=True, blank=True, validators=[FieldNotBlankValidator])
     attachments = models.ForeignKey(FileCollection, on_delete=models.SET_NULL, null=True, blank=True)
     poll_type = models.IntegerField(choices=PollType.choices)
+    version = models.PositiveIntegerField(default=1, validators=[MaxValueValidator(2), MinValueValidator(1)])
     quorum = models.IntegerField(default=None, null=True, blank=True,
                                  validators=[MinValueValidator(0), MaxValueValidator(100)])
     tag = models.ForeignKey(GroupTags, on_delete=models.CASCADE, null=True, blank=True)
@@ -87,7 +88,8 @@ class Poll(BaseModel, NotifiableModel):
     2 - Calculating Combined Bets
     """
     status_prediction = models.IntegerField(default=0)
-    result = models.ForeignKey('poll.PollProposal', null=True, blank=True, on_delete=models.SET_NULL, related_name='winning_proposal')
+    result = models.ForeignKey('poll.PollProposal', null=True, blank=True, on_delete=models.SET_NULL,
+                               related_name='winning_proposal')
 
     # Comment section
     comment_section = models.ForeignKey(CommentSection, default=comment_section_create_model_default,
@@ -107,16 +109,24 @@ class Poll(BaseModel, NotifiableModel):
 
     @property
     def labels(self) -> tuple:
+        # Returns timetable based on the poll type and version
         if self.dynamic:
             if self.poll_type == self.PollType.SCHEDULE:
-                return ((self.start_date, 'start_date', 'schedule'),
+                return ((self.start_date, 'start_date', 'schedule'),  # Schedule poll
                         (self.end_date, 'end_date', 'result'))
 
             else:
-                return ((self.start_date, 'start_date', 'dynamic'),
+                return ((self.start_date, 'start_date', 'dynamic'),  # Dynamic poll
                         (self.end_date, 'end_date', 'result'))
 
-        return ((self.start_date, 'start_date', 'area_vote'),
+        if self.version == 2:  # KPI poll
+            return ((self.start_date, 'start_date', 'proposal'),
+                    (self.proposal_end_date, 'proposal_end_date', 'prediction_bet'),
+                    (self.prediction_bet_end_date, 'prediction_bet_end_date', 'delegate_vote'),
+                    (self.delegate_vote_end_date, 'delegate_vote_end_date', 'vote'),
+                    (self.end_date, 'end_date', 'result'))
+
+        return ((self.start_date, 'start_date', 'area_vote'),  # Prediction poll
                 (self.area_vote_end_date, 'area_vote_end_date', 'proposal'),
                 (self.proposal_end_date, 'proposal_end_date', 'prediction_statement'),
                 (self.prediction_statement_end_date, 'prediction_statement_end_date', 'prediction_bet'),
@@ -126,7 +136,8 @@ class Poll(BaseModel, NotifiableModel):
                 (self.end_date, 'end_date', 'prediction_vote'))
 
     @property
-    def time_table(self) -> list:
+    def time_table(self) -> list:  # TODO fix fast_forward, timestamps can be None
+        # Returns unedited timetable based on the model
         labels = [[self.start_date, 'start_date', 'area_vote'],
                   [self.area_vote_end_date, 'area_vote_end_date', 'proposal'],
                   [self.proposal_end_date, 'proposal_end_date', 'prediction_statement'],
@@ -136,24 +147,25 @@ class Poll(BaseModel, NotifiableModel):
                   [self.vote_end_date, 'vote_end_date', 'result'],
                   [self.end_date, 'end_date', 'prediction_vote']]
 
-        if self.dynamic:
-            if self.poll_type == self.PollType.SCHEDULE:
-                labels[0][2] = 'schedule'
-                labels[6][2] = 'result_default'
-                labels[7][2] = 'result'
-
-            else:
-                labels[0][2] = 'dynamic'
-                labels[6][2] = 'result_default'
-                labels[7][2] = 'result'
-
         return labels
+
+    @classmethod
+    def pre_save(cls, instance, *args, **kwargs):
+        labels = [x[1] for x in instance.labels]
+        for i in [i[1] for i in instance.time_table if i[1] not in labels]:
+            exec(i[1] + ' = None')
 
     def clean(self):
         labels = self.labels
+
+        if not all([x[0] is not None for x in labels]):
+            raise ValidationError('Current poll type requires following fields to be filled: ' +
+                                  ', '.join([x[1] for x in labels]))
+
         for x in range(len(labels) - 1):
             phase = labels[x]
             next_phase = labels[x + 1]
+
             if phase[0] >= next_phase[0]:
                 raise ValidationError(f'{phase[1].replace("_", " ").title()} '
                                       f'starts after {next_phase[1].replace("_", " ").title()}')
@@ -199,8 +211,16 @@ class Poll(BaseModel, NotifiableModel):
 
         return 'waiting'
 
-    def get_phase(self, phase: str, field_name=False) -> datetime | str:
-        time_table = self.time_table
+    def get_phase(self, phase: str, use_time_table=False, field_name=False) -> datetime | str:
+        """
+        Gets the phase of the label input.
+        :param phase: The phase to get the time for
+        :param use_time_table: Whether input is a phase label or a time_table name
+        :param field_name: Returns time_table field name instead of phase datetime
+        :return:
+        """
+
+        time_table = self.labels if not use_time_table else self.time_table
 
         for x in reversed(range(len(time_table))):
             if phase == time_table[x][2]:
@@ -223,13 +243,21 @@ class Poll(BaseModel, NotifiableModel):
 
         return False
 
-    def check_phase(self, *phases: str):
+    def check_phase(self, *phases: str, raise_exception: bool = True):
         if not any(self.phase_exist(phase, raise_exception=False) for phase in phases):
+            if not raise_exception:
+                return False
+
             raise ValidationError(f'Action is unavailable for this poll')
 
         current_phase = self.current_phase
         if current_phase not in phases:
+            if not raise_exception:
+                return False
+
             raise ValidationError(f'Poll is not in {" or ".join(phases)}, currently in {current_phase}')
+
+        return True
 
     NOTIFICATION_DATA_FIELDS = (('poll_id', int),
                                 ('poll_title', str),
@@ -304,6 +332,7 @@ class Poll(BaseModel, NotifiableModel):
             instance.schedule.delete()
 
 
+pre_save.connect(Poll.pre_save, sender=Poll)
 post_delete.connect(Poll.post_delete, sender=Poll)
 
 
@@ -494,6 +523,74 @@ class PollPredictionBet(PredictionBet):
     def reset_prediction_proposal(sender, instance: PollProposal, **kwargs):
         PollPredictionBet.objects.filter(
             prediction_statement__pollpredictionstatementsegment__proposal=instance).delete()
+
+
+class PollProposalKPI(BaseModel):
+    proposal = models.ForeignKey(PollProposal, on_delete=models.CASCADE)
+    kpi_value = models.ForeignKey('group.GroupKPIValue', on_delete=models.CASCADE)
+    combined_bet = models.DecimalField(max_digits=8, decimal_places=7, null=True, blank=True)
+    outcome = models.BooleanField(default=False, null=True, blank=True)
+
+    @classmethod
+    def generate_kpis(self, proposal_id: int) -> None:
+        """
+        Generates KPI's for a poll proposal
+        :param proposal_id: The ID of the proposal
+        :return: None
+        """
+        proposal = PollProposal.objects.get(id=proposal_id)
+        proposal_kpi = list(
+            PollProposalKPI.objects.filter(proposal_id=proposal_id).values_list('kpi_value_id', flat=True))
+        kpi_values = GroupKPIValue.objects.filter(kpi__group=proposal.poll.created_by.group,
+                                                  kpi__active=True).exclude(id__in=proposal_kpi)
+
+        data = [PollProposalKPI(proposal_id=proposal_id, kpi_value=i) for i in kpi_values]
+        PollProposalKPI.objects.bulk_create(data)
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=['proposal', 'kpi_value'], name='unique_pollproposalkpi')]
+
+
+class PollProposalKPIBet(BaseModel):
+    created_by = models.ForeignKey(GroupUser, on_delete=models.CASCADE)
+    proposal_kpi = models.ForeignKey(PollProposalKPI, on_delete=models.CASCADE)
+    weight = models.IntegerField(default=0)
+
+    @property
+    def proposal(self):
+        return self.proposal_kpi.proposal
+
+    @property
+    def kpi(self):
+        return self.proposal_kpi.kpi_value.kpi
+
+    @property
+    def kpi_value(self):
+        return self.proposal_kpi.kpi_value
+
+    def clean(self):
+        if not self.proposal_kpi.kpi_value.kpi.active:
+            raise ValidationError("KPI must be active")
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=['created_by', 'proposal_kpi'],
+                                               name='unique_pollproposalkpibet')]
+
+
+class PollProposalKPIVote(BaseModel):
+    created_by = models.ForeignKey(GroupUser, on_delete=models.CASCADE)
+    proposal_kpi = models.ForeignKey(PollProposalKPI, on_delete=models.CASCADE)
+
+    def clean(self):
+        if not self.proposal_kpi.kpi_value.kpi.active:
+            raise ValidationError("KPI must be active")
+
+        if PollProposalKPIVote.objects.filter(proposal_kpi__kpi_value__kpi=self.proposal_kpi.kpi_value.kpi).exists():
+            raise ValidationError("Unable to cast KPI vote on the same KPI more than once")
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=['created_by', 'proposal_kpi'],
+                                               name='unique_pollproposalkpivote')]
 
 
 class PollPhaseTemplate(BaseModel):

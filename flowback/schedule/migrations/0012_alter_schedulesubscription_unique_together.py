@@ -12,12 +12,16 @@ def migrate_schedule_origins(apps, schema_editor):
     ContentType = apps.get_model('contenttypes', 'ContentType')
 
     # Get ContentType instances for each model
-    origins = {
-        'user': ContentType.objects.get(app_label='user', model='user'),
-        'group': ContentType.objects.get(app_label='group', model='group'),
-        'group_poll': ContentType.objects.get(app_label='poll', model='poll'),
-        'group_poll_proposal': ContentType.objects.get(app_label='poll', model='pollproposal'),
-    }
+    try:
+        origins = {
+            'user': ContentType.objects.get(app_label='user', model='user'),
+            'group': ContentType.objects.get(app_label='group', model='group'),
+            'group_poll': ContentType.objects.get(app_label='poll', model='poll'),
+            'group_poll_proposal': ContentType.objects.get(app_label='poll', model='pollproposal'),
+        }
+
+    except ContentType.DoesNotExist:
+        return
 
     # Populate schedule content_type with origin fields
     for schedule in Schedule.objects.all():

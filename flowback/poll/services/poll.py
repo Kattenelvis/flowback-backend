@@ -1,6 +1,6 @@
 from rest_framework.exceptions import ValidationError
 
-from backend.settings import DEBUG
+from backend.settings import DEBUG, FLOWBACK_POLL_VERSION_LOCK
 from flowback.common.services import get_object, model_update
 from flowback.files.services import upload_collection
 from flowback.group.notify import notify_group_poll
@@ -11,13 +11,15 @@ from django.utils import timezone
 from datetime import datetime
 
 from flowback.poll.notify import notify_poll, notify_poll_phase
-from flowback.poll.tasks import poll_area_vote_count, poll_prediction_bet_count, poll_proposal_vote_count
+from flowback.poll.tasks import poll_area_vote_count, poll_prediction_bet_count, poll_proposal_vote_count, \
+    poll_kpi_count
 from flowback.user.models import User
 
 
 def poll_create(*, user_id: int,
                 group_id: int,
                 title: str,
+                poll_type: int,
                 description: str = None,
                 blockchain_id: int = None,
                 start_date: datetime,
@@ -29,7 +31,7 @@ def poll_create(*, user_id: int,
                 vote_end_date: datetime = None,
                 schedule_poll_meeting_link: str = None,
                 end_date: datetime = None,
-                poll_type: int,
+                version: int = 1,
                 allow_fast_forward: bool = False,
                 public: bool,
                 tag: int = None,
@@ -39,6 +41,10 @@ def poll_create(*, user_id: int,
                 quorum: int = None,
                 work_group_id: int = None
                 ) -> Poll:
+
+    if FLOWBACK_POLL_VERSION_LOCK is not None and version != FLOWBACK_POLL_VERSION_LOCK:
+        raise ValidationError("Poll version is not permitted in this flowback instance.")
+
     group_user = group_user_permissions(user=user_id,
                                         group=group_id,
                                         permissions=['create_poll', 'admin'],
@@ -59,15 +65,6 @@ def poll_create(*, user_id: int,
 
         elif not dynamic:
             raise ValidationError('Schedule poll must be dynamic')
-
-    elif not all([proposal_end_date,
-                  prediction_statement_end_date,
-                  area_vote_end_date,
-                  prediction_bet_end_date,
-                  delegate_vote_end_date,
-                  vote_end_date,
-                  end_date]):
-        raise ValidationError('Missing required parameter(s) for generic poll')
 
     elif work_group_id is not None:
         raise ValidationError("Work groups are only assignable to date polls")
@@ -91,6 +88,7 @@ def poll_create(*, user_id: int,
                 vote_end_date=vote_end_date,
                 end_date=end_date,
                 poll_type=poll_type,
+                version=version,
                 allow_fast_forward=allow_fast_forward,
                 public=public,
                 tag_id=tag,
@@ -105,11 +103,19 @@ def poll_create(*, user_id: int,
     poll.full_clean()
     poll.save()
 
-    poll_area_vote_count.apply_async(kwargs=dict(poll_id=poll.id), eta=poll.area_vote_end_date)
-    poll_prediction_bet_count.apply_async(kwargs=dict(poll_id=poll.id),
-                                          eta=poll.prediction_bet_end_date)
-    poll_proposal_vote_count.apply_async(kwargs=dict(poll_id=poll.id),
-                                         eta=poll.end_date)
+    if version == 2:
+        poll_kpi_count.apply_async(kwargs=dict(poll_id=poll.id), eta=poll.prediction_bet_end_date)
+
+    else:
+        poll_area_vote_count.apply_async(kwargs=dict(poll_id=poll.id), eta=poll.area_vote_end_date)
+
+        if not poll_type == Poll.PollType.SCHEDULE:
+            poll_prediction_bet_count.apply_async(kwargs=dict(poll_id=poll.id),
+                                                  eta=poll.prediction_bet_end_date)
+
+    if not poll.dynamic:
+        poll_proposal_vote_count.apply_async(kwargs=dict(poll_id=poll.id),
+                                             eta=poll.end_date)
 
     notify_group_poll(message="A new poll has been posted",
                       action=NotificationChannel.Action.CREATED,
@@ -188,18 +194,23 @@ def poll_fast_forward(*, user_id: int, poll_id: int, phase: str):
 
     # Save new times to dict
     for phase in time_table:
-        # Becomes none at date poll
-        _phase = poll.get_phase(phase)
-        if (_phase is not None):
-            phase_time = _phase - time_difference
-            setattr(poll, poll.get_phase(phase, field_name=True), phase_time)
+        phase_time = poll.get_phase(phase, use_time_table=True) - time_difference
+        setattr(poll, poll.get_phase(phase, use_time_table=True, field_name=True), phase_time)
 
     poll.full_clean()
     poll.save()
 
-    # If not date poll, do these things depending on which phase one is going into
-    if (poll.poll_type == 4):
-        # TODO update/remove previous celery tasks
+    print(poll.current_phase)
+
+    # TODO update/remove previous celery tasks
+    if poll.version == 2:
+        if poll.prediction_bet_end_date > timezone.now():
+            poll_kpi_count.apply_async(kwargs=dict(poll_id=poll.id), eta=poll.prediction_bet_end_date)
+
+        else:
+            poll_kpi_count(poll_id=poll.id)
+
+    else:
         if poll.area_vote_end_date > timezone.now():
             poll_area_vote_count.apply_async(kwargs=dict(poll_id=poll.id), eta=poll.area_vote_end_date)
 
@@ -211,12 +222,6 @@ def poll_fast_forward(*, user_id: int, poll_id: int, phase: str):
 
         else:
             poll_prediction_bet_count(poll_id=poll.id)
-
-        if poll.end_date > timezone.now():
-            poll_proposal_vote_count.apply_async(kwargs=dict(poll_id=poll.id), eta=poll.end_date)
-
-        else:
-            poll_proposal_vote_count(poll_id=poll.id)
 
     notify_poll_phase(message=f"Poll has been fast forwarded "
                               f"to {poll.current_phase.replace('_', ' ').capitalize()}",

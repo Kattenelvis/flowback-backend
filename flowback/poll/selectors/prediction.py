@@ -6,7 +6,8 @@ from django.utils import timezone
 
 from flowback.common.filters import NumberInFilter
 from flowback.group.selectors.permission import group_user_permissions
-from flowback.poll.models import PollPredictionStatement, PollPredictionBet, PollPredictionStatementVote
+from flowback.poll.models import PollPredictionStatement, PollPredictionBet, PollPredictionStatementVote, \
+    PollProposalKPIBet, PollProposalKPIVote
 from flowback.user.models import User
 
 
@@ -71,3 +72,40 @@ def poll_prediction_bet_list(*, fetched_by: User, group_id: int = None, filters=
                                           prediction_statement__active=True,
                                           created_by__user=fetched_by).all()
     return BasePollPredictionBetFilter(filters, qs).qs
+
+
+class BasePollProposalKPIBetFilter(django_filters.FilterSet):
+    poll_id = django_filters.NumberFilter(field_name='proposal__poll_id')
+    proposal_ids = NumberInFilter(field_name='proposal_id')
+    kpi_ids = NumberInFilter(field_name='proposal_kpi__kpi_value__kpi_id')
+    values = NumberInFilter(field_name='proposal_kpi__kpi_value__value')
+    value__lt = django_filters.NumberFilter(field_name='proposal_kpi__kpi_value__value', lookup_expr='lt')
+    value__gt = django_filters.NumberFilter(field_name='proposal_kpi__kpi_value__value', lookup_expr='gt')
+
+    class Meta:
+        model = PollProposalKPIBet
+        fields = dict(weight=['lt', 'gt'])
+
+
+def poll_proposal_kpi_bet_list(*, fetched_by: User, group_id: int, filters=None):
+    filters = filters or {}
+
+    group_user = group_user_permissions(user=fetched_by, group=group_id)
+    qs = PollProposalKPIBet.objects.filter(created_by=group_user).all()
+
+    return BasePollProposalKPIBetFilter(filters, qs).qs
+
+
+class BasePollProposalKPIVoteFilter(django_filters.FilterSet):
+    proposal_ids = NumberInFilter(field_name='proposal_kpi__proposal_id')
+    kpi_ids = NumberInFilter(field_name='proposal_kpi__kpi_value__kpi_id')
+    vote = django_filters.NumberFilter()
+
+
+def poll_proposal_kpi_vote_list(*, fetched_by: User, group_id: int, filters=None):
+    filters = filters or {}
+
+    group_user = group_user_permissions(user=fetched_by, group=group_id)
+    qs = PollProposalKPIVote.objects.filter(created_by=group_user).all()
+
+    return BasePollProposalKPIVoteFilter(filters, qs).qs
