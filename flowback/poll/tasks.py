@@ -1,19 +1,19 @@
 import random
 from celery import shared_task
 from django.db import models
-from django.db.models import Count, Q, Sum, OuterRef, Case, When, F, Subquery, Max, QuerySet
-from django.db.models.functions import Cast
+from django.db.models import Count, Q, Sum, OuterRef, Case, When, F, Subquery, Max, QuerySet, Value
+from django.db.models.functions import Cast, Greatest
 from django.utils import timezone
 
-from backend.settings import DEBUG
+from backend.settings import DEBUG, FLOWBACK_KPI_MAX_WEIGHT
 from flowback.common.services import get_object
-from flowback.group.models import GroupTags, GroupUser, GroupUserDelegatePool
+from flowback.group.models import GroupTags, GroupUser, GroupUserDelegatePool, GroupKPIValue
 from flowback.group.selectors.permission import permission_q
 from flowback.group.selectors.tags import group_tags_list
 from flowback.notification.models import NotificationChannel
 from flowback.poll.models import Poll, PollAreaStatement, PollPredictionBet, PollPredictionStatement, \
     PollDelegateVoting, PollVotingTypeRanking, PollProposal, PollVoting, \
-    PollVotingTypeCardinal, PollVotingTypeForAgainst, PollProposalKPI
+    PollVotingTypeCardinal, PollVotingTypeForAgainst, PollProposalKPI, PollProposalKPIBet
 
 import numpy as np
 
@@ -52,17 +52,111 @@ def dprint(*args, **kwargs):
 
 
 @shared_task
+def poll_kpi_count(poll_id: int):
+    timestamp = timezone.now()
+    poll = Poll.objects.get(id=poll_id)
+
+    if poll.version != 2:
+        return
+
+    poll.status_prediction = 2
+    poll.save()
+
+    # Subquery to get the winning kpi per proposal
+    pollproposalkpi_sq = PollProposalKPI.objects.filter(proposal=OuterRef('proposal'),
+                                                        kpi_value__kpi=OuterRef('kpi_value__kpi')
+                                                        ).annotate(sum_score=Count('pollproposalkpivote')
+                                                                   ).exclude(Q(sum_score__isnull=True)
+                                                                             | Q(sum_score__lte=0)
+                                                                             ).order_by('-sum_score').values('id')[:1]
+
+    # List of eligible KPIs
+    proposal_kpis = PollProposalKPI.objects.filter(
+        Q(Q(proposal__poll__end_date__lte=timestamp, proposal__created_at__lte=timestamp)
+          & ~Q(proposal__poll=poll)) | Q(proposal__poll=poll),
+        proposal__poll__created_by__group=poll.created_by.group,
+        proposal__poll__version=2,
+        kpi_value__kpi__active=True
+    )
+
+    winning_proposal_kpis = proposal_kpis.annotate(winner=pollproposalkpi_sq).exclude(~Q(winner=F('id')))
+    dprint('Winning KPIs', [i.winner for i in winning_proposal_kpis])
+
+    # Get current proposals and KPIs
+    proposals = PollProposal.objects.filter(poll=poll, active=True)
+    group_kpis = GroupKPIValue.objects.filter(kpi__active=True).all()
+
+    for kpi_val in group_kpis:
+        current_kpis = proposal_kpis.filter(kpi_value=kpi_val, proposal__poll=poll)
+        previous_kpis = proposal_kpis.filter(kpi_value=kpi_val).exclude(proposal__poll=poll)
+        previous_winning_kpis = winning_proposal_kpis.filter(kpi_value=kpi_val).exclude(proposal__poll=poll)
+        previous_outcomes = [1] * previous_winning_kpis.count()
+
+        # Get relevant users
+        group_users = list(PollProposalKPIBet.objects.filter(proposal_kpi_id__in=previous_winning_kpis
+                                                             ).distinct('created_by'
+                                                                        ).values_list('created_by', flat=True))
+
+        group_users = GroupUser.objects.filter(id__in=group_users)
+
+        # Helper for annotation
+        def user_weight_annotation_dict(group_user: GroupUser) -> dict:
+            max_weight_sq = PollProposalKPIBet.objects.filter(
+                created_by=group_user,
+                proposal_kpi__kpi_value__kpi=OuterRef('kpi_value__kpi'),
+                proposal_kpi__proposal=OuterRef('proposal')
+            ).values('created_by').annotate(sum_weight=Sum('weight'),
+                                            max_weight=Greatest('sum_weight', FLOWBACK_KPI_MAX_WEIGHT)
+                                            ).values('max_weight')[:1]
+
+            weight_sq = PollProposalKPIBet.objects.filter(created_by=group_user,
+                                                          proposal_kpi_id=OuterRef('id')).values('weight')
+
+            # Manage previous bets
+            output_field = models.DecimalField(decimal_places=4, max_digits=12)
+            return dict(weight=Subquery(weight_sq), max_weight=Subquery(max_weight_sq),
+                        user_weight=Cast(F('weight'), output_field=output_field) / Cast(
+                            F('max_weight'), output_field=output_field))
+
+        previous_bets = []
+        current_bets = []
+        for group_user in group_users:
+            previous_user_bets = previous_winning_kpis.annotate(**user_weight_annotation_dict(group_user))
+            dprint([f'[{i + 1}] User {group_user} has weight '
+                   f'{round(x.user_weight, 2) if x.user_weight is not None else None}, '
+                   f'using max weight {x.max_weight} for KPI {kpi_val.id}' for i, x in enumerate(previous_user_bets)])
+
+            previous_bets.append(previous_user_bets.values_list('user_weight', flat=True))
+            current_bets.append(current_kpis.annotate(**user_weight_annotation_dict(group_user)
+                                                      ).values_list('user_weight', flat=True))
+
+        if current_bets:
+            dprint("Current bets: ", current_bets)
+            dprint("Previous bets: ", previous_bets)
+            dprint("Previous outcomes: ", previous_outcomes)
+            calculate_combined_bet(poll_statements=current_kpis,
+                                   current_bets=[[float(i) if i is not None else None for i in x] for x in current_bets],
+                                   previous_bets=[[float(i) if i is not None else None for i in x] for x in previous_bets],
+                                   previous_outcomes=previous_outcomes)
+
+
+@shared_task
 def poll_prediction_bet_count(poll_id: int):
     # For one prediction, assuming no bias and stationary predictors
     # Get every predictor participating in poll
     timestamp = timezone.now()  # Avoid new bets causing list to be offset
     poll = Poll.objects.get(id=poll_id)
+
+    if poll.version != 1:
+        return
+
     poll.status_prediction = 2
     poll.save()
 
     # Get list of previous outcomes in a given area (poll)
     statements = PollPredictionStatement.objects.filter(
         Q(Q(poll__tag=poll.tag,
+            poll__version=1,
             poll__end_date__lte=timestamp,
             created_at__lte=timestamp) & ~Q(poll=poll)) | Q(poll=poll),
         active=True

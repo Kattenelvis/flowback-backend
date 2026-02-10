@@ -298,11 +298,11 @@ class PollProposalKPIVoteListAPI(APIView):
 
     class OutputSerializer(serializers.Serializer):
         id = serializers.IntegerField()
-        proposal = PollProposalSerializer()
-        kpi_id = serializers.IntegerField()
-        kpi_name = serializers.CharField(source='kpi.name')
-        kpi_description = serializers.CharField(allow_null=True, source='kpi.description')
-        vote = serializers.IntegerField()
+        proposal = PollProposalSerializer(source='proposal_kpi.proposal')
+        kpi_id = serializers.IntegerField(source='proposal_kpi.kpi_value.kpi.id')
+        kpi_name = serializers.CharField(source='proposal_kpi.kpi_value.kpi.name')
+        kpi_description = serializers.CharField(allow_null=True, source='proposal_kpi.kpi_value.kpi.description')
+        vote = serializers.IntegerField(source='proposal_kpi.kpi_value.value')
         created_by = GroupUserSerializer()
 
     def get(self, request, group_id: int):

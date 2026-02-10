@@ -97,8 +97,8 @@ def poll_proposal_kpi_bet_list(*, fetched_by: User, group_id: int, filters=None)
 
 
 class BasePollProposalKPIVoteFilter(django_filters.FilterSet):
-    proposal_ids = NumberInFilter(field_name='proposal_id')
-    kpi_ids = NumberInFilter(field_name='kpi_id')
+    proposal_ids = NumberInFilter(field_name='proposal_kpi__proposal_id')
+    kpi_ids = NumberInFilter(field_name='proposal_kpi__kpi_value__kpi_id')
     vote = django_filters.NumberFilter()
 
 

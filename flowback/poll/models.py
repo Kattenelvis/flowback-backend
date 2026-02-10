@@ -2,14 +2,14 @@ from datetime import datetime
 
 from django.core.validators import MinValueValidator, MaxValueValidator
 from django.db import models
-from django.db.models import Q, F, Count
+from django.db.models import Q, F, Count, Sum
 from django.db.models.signals import post_save, post_delete, pre_save
 from django.dispatch import receiver
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 from rest_framework.exceptions import ValidationError
 
-from backend.settings import FLOWBACK_SCORE_VOTE_CEILING, FLOWBACK_SCORE_VOTE_FLOOR, DEBUG
+from backend.settings import FLOWBACK_SCORE_VOTE_CEILING, FLOWBACK_SCORE_VOTE_FLOOR, DEBUG, FLOWBACK_KPI_MAX_WEIGHT
 from flowback.files.models import FileCollection
 from flowback.notification.models import NotifiableModel, NotificationChannel
 from flowback.prediction.models import (PredictionBet,
@@ -537,7 +537,8 @@ class PollProposalKPI(BaseModel):
         :return: None
         """
         proposal = PollProposal.objects.get(id=proposal_id)
-        proposal_kpi = list(PollProposalKPI.objects.filter(id=proposal_id).values_list('kpi_value_id', flat=True))
+        proposal_kpi = list(
+            PollProposalKPI.objects.filter(proposal_id=proposal_id).values_list('kpi_value_id', flat=True))
         kpi_values = GroupKPIValue.objects.filter(kpi__group=proposal.poll.created_by.group,
                                                   kpi__active=True).exclude(id__in=proposal_kpi)
 
@@ -576,16 +577,17 @@ class PollProposalKPIBet(BaseModel):
 
 class PollProposalKPIVote(BaseModel):
     created_by = models.ForeignKey(GroupUser, on_delete=models.CASCADE)
-    proposal = models.ForeignKey(PollProposal, on_delete=models.CASCADE)
-    kpi = models.ForeignKey('group.GroupKPI', on_delete=models.CASCADE)
-    vote = models.IntegerField()
+    proposal_kpi = models.ForeignKey(PollProposalKPI, on_delete=models.CASCADE)
 
     def clean(self):
-        if not self.kpi.active:
+        if not self.proposal_kpi.kpi_value.kpi.active:
             raise ValidationError("KPI must be active")
 
+        if PollProposalKPIVote.objects.filter(proposal_kpi__kpi_value__kpi=self.proposal_kpi.kpi_value.kpi).exists():
+            raise ValidationError("Unable to cast KPI vote on the same KPI more than once")
+
     class Meta:
-        constraints = [models.UniqueConstraint(fields=['created_by', 'proposal', 'kpi'],
+        constraints = [models.UniqueConstraint(fields=['created_by', 'proposal_kpi'],
                                                name='unique_pollproposalkpivote')]
 
 

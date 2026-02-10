@@ -11,7 +11,8 @@ from django.utils import timezone
 from datetime import datetime
 
 from flowback.poll.notify import notify_poll, notify_poll_phase
-from flowback.poll.tasks import poll_area_vote_count, poll_prediction_bet_count, poll_proposal_vote_count
+from flowback.poll.tasks import poll_area_vote_count, poll_prediction_bet_count, poll_proposal_vote_count, \
+    poll_kpi_count
 from flowback.user.models import User
 
 
@@ -98,12 +99,15 @@ def poll_create(*, user_id: int,
     poll.full_clean()
     poll.save()
 
-    if not version == 2:
+    if version == 2:
+        poll_kpi_count.apply_async(kwargs=dict(poll_id=poll.id), eta=poll.prediction_bet_end_date)
+
+    else:
         poll_area_vote_count.apply_async(kwargs=dict(poll_id=poll.id), eta=poll.area_vote_end_date)
 
-    if not poll_type == Poll.PollType.SCHEDULE:
-        poll_prediction_bet_count.apply_async(kwargs=dict(poll_id=poll.id),
-                                              eta=poll.prediction_bet_end_date)
+        if not poll_type == Poll.PollType.SCHEDULE:
+            poll_prediction_bet_count.apply_async(kwargs=dict(poll_id=poll.id),
+                                                  eta=poll.prediction_bet_end_date)
 
     if not poll.dynamic:
         poll_proposal_vote_count.apply_async(kwargs=dict(poll_id=poll.id),
@@ -195,17 +199,25 @@ def poll_fast_forward(*, user_id: int, poll_id: int, phase: str):
     print(poll.current_phase)
 
     # TODO update/remove previous celery tasks
-    if poll.area_vote_end_date > timezone.now():
-        poll_area_vote_count.apply_async(kwargs=dict(poll_id=poll.id), eta=poll.area_vote_end_date)
+    if poll.version == 2:
+        if poll.prediction_bet_end_date > timezone.now():
+            poll_kpi_count.apply_async(kwargs=dict(poll_id=poll.id), eta=poll.prediction_bet_end_date)
+
+        else:
+            poll_kpi_count(poll_id=poll.id)
 
     else:
-        poll_area_vote_count(poll_id=poll.id)
+        if poll.area_vote_end_date > timezone.now():
+            poll_area_vote_count.apply_async(kwargs=dict(poll_id=poll.id), eta=poll.area_vote_end_date)
 
-    if poll.prediction_bet_end_date > timezone.now():
-        poll_prediction_bet_count.apply_async(kwargs=dict(poll_id=poll.id), eta=poll.prediction_bet_end_date)
+        else:
+            poll_area_vote_count(poll_id=poll.id)
 
-    else:
-        poll_prediction_bet_count(poll_id=poll.id)
+        if poll.prediction_bet_end_date > timezone.now():
+            poll_prediction_bet_count.apply_async(kwargs=dict(poll_id=poll.id), eta=poll.prediction_bet_end_date)
+
+        else:
+            poll_prediction_bet_count(poll_id=poll.id)
 
     if poll.end_date > timezone.now():
         poll_proposal_vote_count.apply_async(kwargs=dict(poll_id=poll.id), eta=poll.end_date)

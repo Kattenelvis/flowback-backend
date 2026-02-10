@@ -297,10 +297,13 @@ def poll_proposal_kpi_vote(user_id: int,
     proposal.poll.check_phase('result')
 
     if not vote:
-        PollProposalKPIVote.objects.get(created_by=group_user, proposal=proposal, kpi=kpi).delete()
+        PollProposalKPIVote.objects.get(created_by=group_user,
+                                        proposal_kpi__proposal=proposal,
+                                        proposal_kpi__kpi_value__kpi=kpi).delete()
         return None
 
-    vote = PollProposalKPIVote(created_by=group_user, proposal=proposal, kpi=kpi, vote=vote)
+    proposal_kpi = PollProposalKPI.objects.get(proposal=proposal, kpi_value__kpi=kpi, kpi_value__value=vote)
+    vote = PollProposalKPIVote(created_by=group_user, proposal_kpi=proposal_kpi)
     vote.full_clean()
     vote.save()
 
