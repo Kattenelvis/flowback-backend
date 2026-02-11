@@ -28,7 +28,7 @@ class GroupKPIListAPI(APIView):
 
         data = group_kpi_list(fetched_by=request.user, group_id=group_id, filters=serializer.validated_data)
 
-        return Response(data=data)
+        return Response(data=self.OutputSerializer(data, many=True).data)
 
 
 class GroupKPICreateAPI(APIView):
