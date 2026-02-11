@@ -185,7 +185,6 @@ def poll_fast_forward(*, user_id: int, poll_id: int, phase: str):
     poll.phase_exist(phase)
 
     phases = [label[2] for label in poll.labels]
-    time_table = [label[2] for label in poll.time_table]
 
     if not poll.current_phase == 'waiting' and phases.index(phase) <= phases.index(poll.current_phase):
         raise ValidationError('Unable to fast forward poll to the same/previous phase')
@@ -193,14 +192,18 @@ def poll_fast_forward(*, user_id: int, poll_id: int, phase: str):
     time_difference = poll.get_phase(phase) - timezone.now()
 
     # Save new times to dict
-    for phase in time_table:
-        phase_time = poll.get_phase(phase, use_time_table=True) - time_difference
-        setattr(poll, poll.get_phase(phase, use_time_table=True, field_name=True), phase_time)
+    label_fields = {poll.get_phase(lp, field_name=True) for lp in phases}
+    for label_phase in phases:
+        phase_time = poll.get_phase(label_phase) - time_difference
+        setattr(poll, poll.get_phase(label_phase, field_name=True), phase_time)
+
+    # Null out date fields not used by this poll version to avoid constraint violations
+    for tt_entry in poll.time_table:
+        if tt_entry[1] not in label_fields:
+            setattr(poll, tt_entry[1], None)
 
     poll.full_clean()
     poll.save()
-
-    print(poll.current_phase)
 
     # TODO update/remove previous celery tasks
     if poll.version == 2:
