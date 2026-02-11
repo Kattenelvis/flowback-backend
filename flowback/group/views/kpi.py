@@ -17,6 +17,7 @@ class GroupKPIListAPI(APIView):
         active = serializers.BooleanField(allow_null=True, required=False, default=None)
 
     class OutputSerializer(serializers.Serializer):
+        id = serializers.IntegerField()
         name = serializers.CharField()
         description = serializers.CharField(allow_null=True)
         active = serializers.BooleanField()
