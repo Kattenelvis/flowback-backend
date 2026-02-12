@@ -75,8 +75,8 @@ def poll_prediction_bet_list(*, fetched_by: User, group_id: int = None, filters=
 
 
 class BasePollProposalKPIBetFilter(django_filters.FilterSet):
-    poll_id = django_filters.NumberFilter(field_name='proposal__poll_id')
-    proposal_ids = NumberInFilter(field_name='id')
+    poll_id = django_filters.NumberFilter(field_name='proposal_kpi__proposal__poll_id')
+    proposal_ids = NumberInFilter(field_name='proposal_kpi__proposal_id')
     kpi_ids = NumberInFilter(field_name='proposal_kpi__kpi_value__kpi_id')
     values = NumberInFilter(field_name='proposal_kpi__kpi_value__value')
     value__lt = django_filters.NumberFilter(field_name='proposal_kpi__kpi_value__value', lookup_expr='lt')
