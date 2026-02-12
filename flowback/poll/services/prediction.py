@@ -264,7 +264,10 @@ def poll_proposal_kpi_bet(user_id: int,
     if any([i not in kpi.values for i in values]):
         raise ValidationError("One or more KPI values does not exist in the KPI")
 
-    PollProposalKPIBet.objects.filter(created_by=group_user, proposal_kpi__kpi_value__kpi=kpi).delete()
+    # Generate missing KPI entries for proposals created before this KPI was added
+    PollProposalKPI.generate_kpis(proposal_id=proposal.id)
+
+    PollProposalKPIBet.objects.filter(created_by=group_user, proposal_kpi__proposal=proposal, proposal_kpi__kpi_value__kpi=kpi).delete()
 
     if len(values) == 0:
         return []
@@ -296,15 +299,19 @@ def poll_proposal_kpi_vote(user_id: int,
 
     proposal.poll.check_phase('result')
 
-    if not vote:
-        PollProposalKPIVote.objects.get(created_by=group_user,
-                                        proposal_kpi__proposal=proposal,
-                                        proposal_kpi__kpi_value__kpi=kpi).delete()
-        return None
-
     proposal_kpi = PollProposalKPI.objects.get(proposal=proposal, kpi_value__kpi=kpi, kpi_value__value=vote)
-    vote = PollProposalKPIVote(created_by=group_user, proposal_kpi=proposal_kpi)
-    vote.full_clean()
-    vote.save()
 
-    return vote
+    try:
+        existing_vote = PollProposalKPIVote.objects.get(created_by=group_user,
+                                                        proposal_kpi__proposal=proposal,
+                                                        proposal_kpi__kpi_value__kpi=kpi)
+        existing_vote.proposal_kpi = proposal_kpi
+        existing_vote.full_clean()
+        existing_vote.save()
+        return existing_vote
+
+    except PollProposalKPIVote.DoesNotExist:
+        vote = PollProposalKPIVote(created_by=group_user, proposal_kpi=proposal_kpi)
+        vote.full_clean()
+        vote.save()
+        return vote

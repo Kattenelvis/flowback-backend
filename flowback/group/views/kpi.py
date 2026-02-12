@@ -17,6 +17,7 @@ class GroupKPIListAPI(APIView):
         active = serializers.BooleanField(allow_null=True, required=False, default=None)
 
     class OutputSerializer(serializers.Serializer):
+        id = serializers.IntegerField()
         name = serializers.CharField()
         description = serializers.CharField(allow_null=True)
         active = serializers.BooleanField()
@@ -28,7 +29,7 @@ class GroupKPIListAPI(APIView):
 
         data = group_kpi_list(fetched_by=request.user, group_id=group_id, filters=serializer.validated_data)
 
-        return Response(data=data)
+        return Response(data=self.OutputSerializer(data, many=True).data)
 
 
 class GroupKPICreateAPI(APIView):
