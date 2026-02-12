@@ -226,6 +226,12 @@ def poll_fast_forward(*, user_id: int, poll_id: int, phase: str):
         else:
             poll_prediction_bet_count(poll_id=poll.id)
 
+    if not poll.dynamic:
+        if poll.end_date > timezone.now():
+            poll_proposal_vote_count.apply_async(kwargs=dict(poll_id=poll.id), eta=poll.end_date)
+        else:
+            poll_proposal_vote_count(poll_id=poll.id)
+
     notify_poll_phase(message=f"Poll has been fast forwarded "
                               f"to {poll.current_phase.replace('_', ' ').capitalize()}",
                       action=NotificationChannel.Action.UPDATED,
