@@ -585,7 +585,8 @@ class PollProposalKPIVote(BaseModel):
         if not self.proposal_kpi.kpi_value.kpi.active:
             raise ValidationError("KPI must be active")
 
-        if PollProposalKPIVote.objects.filter(proposal_kpi__kpi_value__kpi=self.proposal_kpi.kpi_value.kpi).exists():
+        if PollProposalKPIVote.objects.filter(proposal_kpi__proposal_id=self.proposal_kpi.proposal.id,
+                                              proposal_kpi__kpi_value__kpi=self.proposal_kpi.kpi_value.kpi).exclude(pk=self.pk).exists():
             raise ValidationError("Unable to cast KPI vote on the same KPI more than once")
 
     class Meta:

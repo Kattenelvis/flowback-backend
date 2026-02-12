@@ -237,7 +237,7 @@ class PollProposalKPIVoteAPI(APIView):
 
         vote = poll_proposal_kpi_vote(user_id=request.user.id,
                                       proposal_id=proposal_id,
-                                      **serializer.validated_data)
+                                      ** serializer.validated_data)
 
         return Response(status=status.HTTP_200_OK, data=vote.id if vote else None)
 
