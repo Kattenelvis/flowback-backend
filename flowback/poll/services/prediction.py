@@ -264,6 +264,9 @@ def poll_proposal_kpi_bet(user_id: int,
     if any([i not in kpi.values for i in values]):
         raise ValidationError("One or more KPI values does not exist in the KPI")
 
+    # Generate missing KPI entries for proposals created before this KPI was added
+    PollProposalKPI.generate_kpis(proposal_id=proposal.id)
+
     PollProposalKPIBet.objects.filter(created_by=group_user, proposal_kpi__kpi_value__kpi=kpi).delete()
 
     if len(values) == 0:
