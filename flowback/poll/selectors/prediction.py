@@ -129,9 +129,8 @@ def poll_proposal_kpi_list(*, fetched_by: User, group_id: int, filters=None):
 
     qs = PollProposalKPI.objects.filter(proposal__poll__created_by__group_id=group_id
                                         ).annotate(winner=pollproposalkpi_sq,
-                                                   outcome=Case(When(winner=None, then=None),
-                                                                When(id=F('winner'), then=True),
-                                                                output_field=models.BooleanField(null=True),
+                                                   outcome=Case(When(id=F('winner'), then=True),
+                                                                output_field=models.BooleanField(),
                                                                 default=False)
                                                    ).all()
 

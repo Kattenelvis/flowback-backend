@@ -9,7 +9,7 @@ from flowback.poll.tests.factories import PollFactory, PollProposalFactory, Poll
     PollProposalKPIVoteFactory
 from flowback.poll.tests.utils import generate_poll_phase_kwargs
 from flowback.poll.views.prediction import PollProposalKPIBetAPI, PollProposalKPIVoteAPI, PollProposalKPIBetListAPI, \
-    PollProposalKPIVoteListAPI
+    PollProposalKPIVoteListAPI, PollProposalKPIListAPI
 from flowback.poll.views.proposal import PollProposalCreateAPI
 
 
@@ -105,13 +105,11 @@ class TestPollProposalKPI(APITestCase):
 
         return proposal
 
-
     def generate_kpi_vote(self, group_user: GroupUser, group_kpi: GroupKPI, proposal: PollProposal, value: int):
         return PollProposalKPIVoteFactory(created_by=group_user,
                                           proposal_kpi=PollProposalKPI.objects.get(proposal=proposal,
                                                                                    kpi_value__kpi=group_kpi,
                                                                                    kpi_value__value=value))
-
 
     def test_kpi_combined_bet(self):
         # group_kpi_one, [12, 22, 29]
@@ -176,10 +174,14 @@ class TestPollProposalKPI(APITestCase):
 
         poll_kpi_count(poll_id=poll_four.id)
 
-
     def test_proposal_kpi_list(self):
-        response = generate_request
+        # TODO block users from accessing kpis they are not permitted to access (e.g. poll for specific workgroup)
+        response = generate_request(api=PollProposalKPIListAPI,
+                                    user=self.group_user_one.user,
+                                    url_params=dict(group_id=self.group.id))
 
+        self.assertEqual(response.status_code, 200, response.data)
+        print(response.data)
 
     def test_kpi_bet_list(self):
         [PollProposalKPIBetFactory(proposal_kpi=PollProposalKPI.objects.get(proposal=self.proposal_one,
@@ -194,7 +196,6 @@ class TestPollProposalKPI(APITestCase):
 
         self.assertEqual(response.status_code, 200, response.data)
         self.assertEqual(response.data['count'], 3)
-
 
     def test_kpi_vote_list(self):
         for i in [12, 22, 29]:
