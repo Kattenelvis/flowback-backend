@@ -26,7 +26,7 @@ def poll_area_vote_count(poll_id: int):
     poll = get_object(Poll, id=poll_id)
     statement = PollAreaStatement.objects.filter(poll=poll).annotate(
         result=Count('pollareastatementvote', filter=Q(pollareastatementvote__vote=True)) -
-               Count('pollareastatementvote', filter=Q(pollareastatementvote__vote=False))
+        Count('pollareastatementvote', filter=Q(pollareastatementvote__vote=False))
     ).order_by('-result').first()
 
     if statement:
@@ -83,12 +83,10 @@ def poll_kpi_count(poll_id: int):
     dprint('Winning KPIs', [i.winner for i in winning_proposal_kpis])
 
     # Get current proposals and KPIs
-    proposals = PollProposal.objects.filter(poll=poll, active=True)
     group_kpis = GroupKPIValue.objects.filter(kpi__active=True).all()
 
     for kpi_val in group_kpis:
         current_kpis = proposal_kpis.filter(kpi_value=kpi_val, proposal__poll=poll)
-        previous_kpis = proposal_kpis.filter(kpi_value=kpi_val).exclude(proposal__poll=poll)
         previous_winning_kpis = winning_proposal_kpis.filter(kpi_value=kpi_val).exclude(proposal__poll=poll)
         previous_outcomes = [1] * previous_winning_kpis.count()
 

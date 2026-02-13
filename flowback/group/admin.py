@@ -1,6 +1,6 @@
 from django.contrib import admin
 from .models import Group, GroupPermissions, GroupTags, GroupUser, GroupUserInvite, GroupUserDelegatePool, \
-    GroupUserDelegate, GroupUserDelegator, GroupFolder, GroupThread
+    GroupUserDelegate, GroupUserDelegator, GroupFolder, GroupThread, GroupKPI, GroupKPIValue
 
 
 @admin.register(GroupFolder)
@@ -97,3 +97,16 @@ class GroupThreadAdmin(admin.ModelAdmin):
             'fields': ('pinned', 'active', 'comment_section'),
         }),
     )
+
+
+@admin.register(GroupKPI)
+class GroupKPIAdmin(admin.ModelAdmin):
+    list_display = ('name', 'group', 'active')
+    list_filter = ('active', 'group')
+    search_fields = ('name', 'description')
+
+
+@admin.register(GroupKPIValue)
+class GroupKPIValueAdmin(admin.ModelAdmin):
+    list_display = ('kpi', 'value')
+    list_filter = ('kpi',)
