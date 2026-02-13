@@ -24,6 +24,7 @@ from .views.prediction import (PollPredictionStatementListAPI,
                                PollPredictionStatementVoteUpdateAPI,
                                PollPredictionStatementVoteDeleteAPI,
                                PollProposalKPIBetAPI,
+                               PollProposalKPICombinedAPI,
                                PollProposalKPIVoteAPI,
                                PollProposalKPIBetListAPI,
                                PollProposalKPIVoteListAPI)
@@ -38,6 +39,7 @@ group_poll_patterns = [
     path('prediction/bet/list', PollPredictionBetListAPI.as_view(), name='poll_prediction_bet_list'),
     path('proposal/kpi/bet/list', PollProposalKPIBetListAPI.as_view(), name='poll_proposal_kpi_bet_list'),
     path('proposal/kpi/vote/list', PollProposalKPIVoteListAPI.as_view(), name='poll_proposal_kpi_vote_list'),
+    path('proposal/kpi/combined', PollProposalKPICombinedAPI.as_view(), name='poll_proposal_kpi_combined'),
 ]
 
 poll_patterns = [

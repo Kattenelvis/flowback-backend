@@ -7,7 +7,7 @@ from flowback.common.pagination import LimitOffsetPagination, get_paginated_resp
 from flowback.group.serializers import GroupUserSerializer
 
 from ..selectors.prediction import (poll_prediction_statement_list, poll_prediction_bet_list,
-                                    poll_proposal_kpi_bet_list, poll_proposal_kpi_vote_list)
+                                    poll_proposal_kpi_bet_list, poll_proposal_kpi_vote_list, poll_proposal_kpi_combined)
 from ..serializers import PollProposalSerializer
 from ..services.prediction import (poll_prediction_statement_create,
                                    poll_prediction_statement_delete,
@@ -317,6 +317,43 @@ class PollProposalKPIVoteListAPI(APIView):
             pagination_class=self.Pagination,
             serializer_class=self.OutputSerializer,
             queryset=kpi_votes,
+            request=request,
+            view=self
+        )
+
+
+@extend_schema(tags=['poll/prediction'])
+class PollProposalKPICombinedAPI(APIView):
+    class Pagination(LimitOffsetPagination):
+        max_limit = 100
+        default_limit = 25
+
+    class FilterSerializer(serializers.Serializer):
+        poll_id = serializers.IntegerField(required=False)
+        proposal_ids = serializers.CharField(required=False)
+
+    class OutputSerializer(serializers.Serializer):
+        id = serializers.IntegerField()
+        proposal = PollProposalSerializer()
+        kpi_id = serializers.IntegerField(source='kpi_value.kpi.id')
+        kpi_name = serializers.CharField(source='kpi_value.kpi.name')
+        kpi_description = serializers.CharField(allow_null=True, source='kpi_value.kpi.description')
+        value = serializers.IntegerField(source='kpi_value.value')
+        combined_bet = serializers.DecimalField(max_digits=8, decimal_places=7, allow_null=True)
+        outcome = serializers.BooleanField(allow_null=True)
+
+    def get(self, request, group_id: int):
+        filter_serializer = self.FilterSerializer(data=request.query_params)
+        filter_serializer.is_valid(raise_exception=True)
+
+        kpi_combined = poll_proposal_kpi_combined(fetched_by=request.user,
+                                                group_id=group_id,
+                                                filters=filter_serializer.validated_data)
+
+        return get_paginated_response(
+            pagination_class=self.Pagination,
+            serializer_class=self.OutputSerializer,
+            queryset=kpi_combined,
             request=request,
             view=self
         )
