@@ -7,11 +7,11 @@ from flowback.common.pagination import LimitOffsetPagination, get_paginated_resp
 from flowback.group.serializers import GroupUserSerializer
 
 from ..selectors.prediction import (poll_prediction_statement_list, poll_prediction_bet_list,
-                                    poll_proposal_kpi_bet_list, poll_proposal_kpi_vote_list, poll_proposal_kpi_combined)
+                                    poll_proposal_kpi_bet_list, poll_proposal_kpi_vote_list,
+                                    poll_proposal_kpi_list)
 from ..serializers import PollProposalSerializer
 from ..services.prediction import (poll_prediction_statement_create,
                                    poll_prediction_statement_delete,
-                                   poll_prediction_bet_create,
                                    poll_prediction_bet_update,
                                    poll_prediction_bet_delete,
                                    poll_prediction_statement_vote_create,
@@ -237,7 +237,7 @@ class PollProposalKPIVoteAPI(APIView):
 
         vote = poll_proposal_kpi_vote(user_id=request.user.id,
                                       proposal_id=proposal_id,
-                                      ** serializer.validated_data)
+                                      **serializer.validated_data)
 
         return Response(status=status.HTTP_200_OK, data=vote.id if vote else None)
 
@@ -323,7 +323,7 @@ class PollProposalKPIVoteListAPI(APIView):
 
 
 @extend_schema(tags=['poll/prediction'])
-class PollProposalKPICombinedAPI(APIView):
+class PollProposalKPIListAPI(APIView):
     class Pagination(LimitOffsetPagination):
         max_limit = 100
         default_limit = 25
@@ -346,9 +346,9 @@ class PollProposalKPICombinedAPI(APIView):
         filter_serializer = self.FilterSerializer(data=request.query_params)
         filter_serializer.is_valid(raise_exception=True)
 
-        kpi_combined = poll_proposal_kpi_combined(fetched_by=request.user,
-                                                group_id=group_id,
-                                                filters=filter_serializer.validated_data)
+        kpi_combined = poll_proposal_kpi_list(fetched_by=request.user,
+                                              group_id=group_id,
+                                              filters=filter_serializer.validated_data)
 
         return get_paginated_response(
             pagination_class=self.Pagination,

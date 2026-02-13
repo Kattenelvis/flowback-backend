@@ -177,6 +177,10 @@ class TestPollProposalKPI(APITestCase):
         poll_kpi_count(poll_id=poll_four.id)
 
 
+    def test_proposal_kpi_list(self):
+        response = generate_request
+
+
     def test_kpi_bet_list(self):
         [PollProposalKPIBetFactory(proposal_kpi=PollProposalKPI.objects.get(proposal=self.proposal_one,
                                                                             kpi_value__kpi=self.group_kpi_one,
