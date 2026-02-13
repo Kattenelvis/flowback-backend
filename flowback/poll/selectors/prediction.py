@@ -7,7 +7,7 @@ from django.utils import timezone
 from flowback.common.filters import NumberInFilter
 from flowback.group.selectors.permission import group_user_permissions
 from flowback.poll.models import PollPredictionStatement, PollPredictionBet, PollPredictionStatementVote, \
-    PollProposalKPIBet, PollProposalKPIVote
+    PollProposalKPI, PollProposalKPIBet, PollProposalKPIVote
 from flowback.user.models import User
 
 
@@ -109,3 +109,16 @@ def poll_proposal_kpi_vote_list(*, fetched_by: User, group_id: int, filters=None
     qs = PollProposalKPIVote.objects.filter(created_by=group_user).all()
 
     return BasePollProposalKPIVoteFilter(filters, qs).qs
+
+
+class BasePollProposalKPICombinedFilter(django_filters.FilterSet):
+    proposal_ids = NumberInFilter(field_name='proposal_id')
+
+
+def poll_proposal_kpi_combined(*, fetched_by: User, group_id: int, filters=None):
+    filters = filters or {}
+
+    group_user_permissions(user=fetched_by, group=group_id)
+    qs = PollProposalKPI.objects.filter(proposal__poll__created_by__group_id=group_id).all()
+
+    return BasePollProposalKPICombinedFilter(filters, qs).qs
