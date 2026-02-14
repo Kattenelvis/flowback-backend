@@ -129,7 +129,6 @@ def poll_kpi_count(poll_id: int):
             current_bets.append(current_kpis.annotate(**user_weight_annotation_dict(group_user)
                                                       ).values_list('user_weight', flat=True))
 
-        print(current_bets, "BETS")
         if current_bets:
             dprint("Current bets: ", current_bets)
             dprint("Previous bets: ", previous_bets)
