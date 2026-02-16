@@ -147,7 +147,7 @@ group_patterns = [
 
     path('<int:group_id>/kpi/list', GroupKPIListAPI.as_view(), name='group_kpi_list'),
     path('<int:group_id>/kpi/create', GroupKPICreateAPI.as_view(), name='group_kpi_create'),
-    path('<int:group_id>/kpi/update', GroupKPIUpdateAPI.as_view(), name='group_kpi_update'),
+    path('/kpi/<int:kpi_id>/update', GroupKPIUpdateAPI.as_view(), name='group_kpi_update'),
 
     path('thread/list', GroupThreadListAPI.as_view(), name='group_thread'),
     path('<int:group_id>/thread/create', GroupThreadCreateAPI.as_view(), name='group_thread_create'),
