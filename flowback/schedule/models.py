@@ -417,9 +417,20 @@ class ScheduleEvent(BaseModel, NotifiableModel):
                 cron_data['month_of_year'] = instance.end_date.month
                 cron_data['day_of_month'] = instance.end_date.day
 
-            cron_schedule = CrontabSchedule.objects.get_or_create(minute=instance.end_date.minute,
-                                                                  hour=instance.end_date.hour,
-                                                                  **cron_data)[0]
+            crontabs = CrontabSchedule.objects.filter(minute=instance.end_date.minute,
+                                                      hour=instance.end_date.hour,
+                                                      **cron_data)
+
+            if crontabs.exists():
+                cron_schedule = crontabs.first()
+
+            else:
+                cron_schedule = CrontabSchedule(minute=instance.end_date.minute,
+                                                hour=instance.end_date.hour,
+                                                **cron_data)
+
+                cron_schedule.full_clean()
+                cron_schedule.save()
 
             # If not created, update the instance task with a new crontab schedule
             task = PeriodicTask.objects.filter(name=f"schedule_event_{instance.id}").first()

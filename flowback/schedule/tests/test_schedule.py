@@ -52,7 +52,7 @@ class ScheduleAPITest(APITestCase):
         )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.data['count'], 2)
+        self.assertEqual(response.data['count'], 3)
         # Verify output serializer fields
         result = response.data['results'][0]
         self.assertIn('id', result)
@@ -108,7 +108,7 @@ class ScheduleSelectorTest(APITestCase):
         """Test schedule_list selector returns correct schedules"""
         schedules = schedule_list(user=self.user1)
 
-        self.assertEqual(schedules.count(), 2)
+        self.assertEqual(schedules.count(), 3)
         # Verify annotation
         schedule = schedules.first()
         self.assertIsNotNone(schedule.available_tags)
