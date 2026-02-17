@@ -47,7 +47,7 @@ class Schedule(BaseModel):
         if not tag and not self.default_tag:
             raise ValidationError("Schedule must either have a tag or a default tag.")
 
-        tag, created = ScheduleTag.objects.get_or_create(schedule=self, name=tag if tag else self.default_tag)
+        tag, created = ScheduleTag.objects.get_or_create(schedule=self, name=tag if tag else self.default_tag.name)
         event = ScheduleEvent(title=title,
                               description=description,
                               start_date=start_date,
@@ -214,6 +214,9 @@ post_save.connect(Schedule.post_save, Schedule)
 class ScheduleTag(BaseModel, NotifiableModel):
     schedule = models.ForeignKey(Schedule, on_delete=models.CASCADE)
     name = models.CharField(max_length=100, validators=[FieldNotBlankValidator])
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=['schedule', 'name'], name='scheduleuniquenameconstraint')]
 
     @classmethod
     def post_save(cls, instance, created, *args, **kwargs):
