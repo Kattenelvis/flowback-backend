@@ -531,7 +531,6 @@ class PollProposalKPI(BaseModel):
     proposal = models.ForeignKey(PollProposal, on_delete=models.CASCADE)
     kpi_value = models.ForeignKey('group.GroupKPIValue', on_delete=models.CASCADE)
     combined_bet = models.DecimalField(max_digits=8, decimal_places=7, null=True, blank=True)
-    outcome = models.BooleanField(default=False, null=True, blank=True)
 
     @classmethod
     def generate_kpis(self, proposal_id: int) -> None:

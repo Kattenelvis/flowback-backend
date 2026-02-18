@@ -12,7 +12,7 @@ from flowback.group.selectors.permission import permission_q
 from flowback.group.selectors.tags import group_tags_list
 from flowback.notification.models import NotificationChannel
 from flowback.poll.models import Poll, PollAreaStatement, PollPredictionBet, PollPredictionStatement, \
-    PollDelegateVoting, PollVotingTypeRanking, PollProposal, PollVoting, \
+    PollDelegateVoting, PollProposal, PollVoting, \
     PollVotingTypeCardinal, PollVotingTypeForAgainst, PollProposalKPI, PollProposalKPIBet
 
 import numpy as np
@@ -26,7 +26,7 @@ def poll_area_vote_count(poll_id: int):
     poll = get_object(Poll, id=poll_id)
     statement = PollAreaStatement.objects.filter(poll=poll).annotate(
         result=Count('pollareastatementvote', filter=Q(pollareastatementvote__vote=True)) -
-        Count('pollareastatementvote', filter=Q(pollareastatementvote__vote=False))
+               Count('pollareastatementvote', filter=Q(pollareastatementvote__vote=False))
     ).order_by('-result').first()
 
     if statement:

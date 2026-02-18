@@ -90,8 +90,7 @@ class PollAreaStatementSegmentAdmin(admin.ModelAdmin):
 
 @admin.register(PollProposalKPI)
 class PollProposalKPIAdmin(admin.ModelAdmin):
-    list_display = ('proposal', 'kpi_value', 'combined_bet', 'outcome')
-    list_filter = ('outcome',)
+    list_display = ('proposal', 'kpi_value', 'combined_bet')
 
 
 @admin.register(PollProposalKPIBet)

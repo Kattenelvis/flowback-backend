@@ -8,5 +8,3 @@ class PollConfig(AppConfig):
 
     def ready(self):
         from . import signals
-
-        request_finished.connect(signals.pollproposal_post_save)

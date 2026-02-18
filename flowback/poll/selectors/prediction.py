@@ -111,14 +111,27 @@ def poll_proposal_kpi_vote_list(*, fetched_by: User, group_id: int, filters=None
     return BasePollProposalKPIVoteFilter(filters, qs).qs
 
 
-class BasePollProposalKPICombinedFilter(django_filters.FilterSet):
+class BasePollProposalKPIFilter(django_filters.FilterSet):
     proposal_ids = NumberInFilter(field_name='proposal_id')
 
 
-def poll_proposal_kpi_combined(*, fetched_by: User, group_id: int, filters=None):
+def poll_proposal_kpi_list(*, fetched_by: User, group_id: int, filters=None):
     filters = filters or {}
 
     group_user_permissions(user=fetched_by, group=group_id)
-    qs = PollProposalKPI.objects.filter(proposal__poll__created_by__group_id=group_id).all()
 
-    return BasePollProposalKPICombinedFilter(filters, qs).qs
+    pollproposalkpi_sq = PollProposalKPI.objects.filter(proposal=OuterRef('proposal'),
+                                                        kpi_value__kpi=OuterRef('kpi_value__kpi')
+                                                        ).annotate(sum_score=Count('pollproposalkpivote')
+                                                                   ).exclude(Q(sum_score__isnull=True)
+                                                                             | Q(sum_score__lte=0)
+                                                                             ).order_by('-sum_score').values('id')[:1]
+
+    qs = PollProposalKPI.objects.filter(proposal__poll__created_by__group_id=group_id
+                                        ).annotate(winner=pollproposalkpi_sq,
+                                                   outcome=Case(When(id=F('winner'), then=True),
+                                                                output_field=models.BooleanField(),
+                                                                default=False)
+                                                   ).all()
+
+    return BasePollProposalKPIFilter(filters, qs).qs
