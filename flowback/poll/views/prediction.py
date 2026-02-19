@@ -213,7 +213,7 @@ class PollPredictionStatementVoteDeleteAPI(APIView):
 class PollProposalKPIBetAPI(APIView):
     class InputSerializer(serializers.Serializer):
         kpi_id = serializers.IntegerField()
-        values = CharacterSeparatedField(child=serializers.IntegerField())
+        values = CharacterSeparatedField(child=serializers.CharField())
         weights = CharacterSeparatedField(child=serializers.IntegerField())
 
     def post(self, request, proposal_id: int):
@@ -229,7 +229,7 @@ class PollProposalKPIBetAPI(APIView):
 class PollProposalKPIVoteAPI(APIView):
     class InputSerializer(serializers.Serializer):
         kpi_id = serializers.IntegerField()
-        vote = serializers.IntegerField(allow_null=True, default=None)
+        vote = serializers.CharField(allow_null=True, default=None)
 
     def post(self, request, proposal_id: int):
         serializer = self.InputSerializer(data=request.data)
@@ -264,7 +264,7 @@ class PollProposalKPIBetListAPI(APIView):
         kpi_id = serializers.IntegerField(source='kpi_value.kpi.id')
         kpi_name = serializers.CharField(source='kpi_value.kpi.name')
         kpi_description = serializers.CharField(allow_null=True, source='kpi_value.kpi.description')
-        value = serializers.IntegerField(source='kpi_value.value')
+        value = serializers.CharField(source='kpi_value.value')
         weight = serializers.IntegerField()
         created_by = GroupUserSerializer()
 
@@ -302,7 +302,7 @@ class PollProposalKPIVoteListAPI(APIView):
         kpi_id = serializers.IntegerField(source='proposal_kpi.kpi_value.kpi.id')
         kpi_name = serializers.CharField(source='proposal_kpi.kpi_value.kpi.name')
         kpi_description = serializers.CharField(allow_null=True, source='proposal_kpi.kpi_value.kpi.description')
-        vote = serializers.IntegerField(source='proposal_kpi.kpi_value.value')
+        vote = serializers.CharField(source='proposal_kpi.kpi_value.value')
         created_by = GroupUserSerializer()
 
     def get(self, request, group_id: int):
@@ -338,7 +338,7 @@ class PollProposalKPIListAPI(APIView):
         kpi_id = serializers.IntegerField(source='kpi_value.kpi.id')
         kpi_name = serializers.CharField(source='kpi_value.kpi.name')
         kpi_description = serializers.CharField(allow_null=True, source='kpi_value.kpi.description')
-        value = serializers.IntegerField(source='kpi_value.value')
+        value = serializers.CharField(source='kpi_value.value')
         combined_bet = serializers.DecimalField(max_digits=8, decimal_places=7, allow_null=True)
         outcome = serializers.BooleanField(allow_null=True)
 

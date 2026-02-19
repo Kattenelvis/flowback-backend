@@ -565,5 +565,5 @@ class GroupKPI(BaseModel):
 
 
 class GroupKPIValue(BaseModel):
-    value = models.IntegerField()
+    value = models.CharField()
     kpi = models.ForeignKey(GroupKPI, on_delete=models.CASCADE)
