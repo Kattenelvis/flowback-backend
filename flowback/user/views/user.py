@@ -196,6 +196,7 @@ class UserNotificationSubscribeAPI(NotificationSubscribeTemplateAPI):
 class UserGetChatChannelAPI(APIView):
     class FilterSerializer(serializers.Serializer):
         target_user_ids = serializers.ListField(child=serializers.IntegerField())
+        title = serializers.CharField(required=False)
         preview = serializers.BooleanField(default=False, help_text="Disabling preview will return 400 if there's no"
                                                                     " MessageChannel found between the users.")
 

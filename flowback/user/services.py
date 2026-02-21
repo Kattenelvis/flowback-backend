@@ -186,7 +186,21 @@ def user_kanban_entry_delete(*, user_id: int, entry_id: int):
                                            entry_id=entry_id)
 
 
-def user_get_chat_channel(fetched_by: User, target_user_ids: int | list[int], preview: bool = False) -> MessageChannel:
+def getTitleName(target_users):
+    title = ""
+    for i, u in enumerate(target_users):
+        if len(title + u.username) > 50:
+            title += (f"{' and' if title else ''} "
+                    f"{target_users.count() - i} "
+                    f"other{'s' if target_users.count() - i != 1 else ''}...")
+            break
+        else:
+            title += f", {u.username}" if i > 0 else u.username
+
+    return title
+
+
+def user_get_chat_channel(fetched_by: User, target_user_ids: int | list[int], preview: bool = False, title: str = "") -> MessageChannel:
     if len(target_user_ids) > 25:
         raise ValidationError("Cannot invite more than 25 users to group.")
 
@@ -224,16 +238,8 @@ def user_get_chat_channel(fetched_by: User, target_user_ids: int | list[int], pr
         if preview:
             raise ValidationError("MessageChannel does not exist between the participants")
 
-        title = ""
-        for i, u in enumerate(target_users):
-            if len(title + u.username) > 50:
-                title += (f"{' and' if title else ''} "
-                          f"{target_users.count() - i} "
-                          f"other{'s' if target_users.count() - i != 1 else ''}...")
-                break
-
-            else:
-                title += f", {u.username}" if i > 0 else u.username
+        if title == "":
+            title = getTitleName(target_users)
 
         channel = message_channel_create(origin_name=f"{User.message_channel_origin}"
                                                      f"{'_group' if target_users.count() > 2 else ''}",
