@@ -12,6 +12,7 @@ def reports_list(fetched_by: User):
         raise PermissionDenied('Only server staff members can view reports')
 
     return Report.objects.all().order_by('-created_at').annotate(
+        # If the post being reported is still active, then the admin action is "nothing". If the post has been deleted, then the admin action is "deleted".
         admin_action=Case(
             When(
                 Q(Exists(Poll.objects.filter(id=OuterRef('post_id'), active=True)))
