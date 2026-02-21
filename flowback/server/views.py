@@ -46,6 +46,7 @@ class ServerReportListAPI(APIView):
         group_id = serializers.IntegerField()
         post_id = serializers.IntegerField()
         post_type = serializers.CharField()
+        admin_action = serializers.ChoiceField(choices=['nothing', 'deleted'])
 
     def get(self, request):
         reports = reports_list(fetched_by=request.user)
