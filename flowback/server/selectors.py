@@ -2,7 +2,7 @@ from rest_framework.exceptions import PermissionDenied
 
 from flowback.user.models import User, Report
 from flowback.poll.models import Poll
-from django.db.models import Q, Exists, OuterRef, F, Subquery, Value, Case, When
+from django.db.models import Exists, OuterRef, Value, Case, When
 from flowback.group.models import GroupThread
 
 
