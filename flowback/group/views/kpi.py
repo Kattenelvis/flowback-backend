@@ -21,7 +21,7 @@ class GroupKPIListAPI(APIView):
         name = serializers.CharField()
         description = serializers.CharField(allow_null=True)
         active = serializers.BooleanField()
-        values = serializers.ListField(child=serializers.IntegerField())
+        values = serializers.ListField(child=serializers.CharField())
 
     def get(self, request, group_id: int):
         serializer = self.FilterSerializer(data=request.query_params)
@@ -36,7 +36,7 @@ class GroupKPICreateAPI(APIView):
     class InputSerializer(serializers.Serializer):
         name = serializers.CharField()
         description = serializers.CharField(required=False)
-        values = CharacterSeparatedField(child=serializers.IntegerField())
+        values = CharacterSeparatedField(child=serializers.CharField())
 
     def post(self, request, group_id: int):
         serializer = self.InputSerializer(data=request.data)

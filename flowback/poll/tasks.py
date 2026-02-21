@@ -56,6 +56,7 @@ def poll_kpi_count(poll_id: int):
     timestamp = timezone.now()
     poll = Poll.objects.get(id=poll_id)
 
+    # Only for KPI polls
     if poll.version != 2:
         return
 
@@ -79,7 +80,7 @@ def poll_kpi_count(poll_id: int):
         kpi_value__kpi__active=True
     )
 
-    winning_proposal_kpis = proposal_kpis.annotate(winner=pollproposalkpi_sq).exclude(~Q(winner=F('id')))
+    winning_proposal_kpis = proposal_kpis.annotate(winner=pollproposalkpi_sq).filter(winner=F('id'))
     dprint('Winning KPIs', [i.winner for i in winning_proposal_kpis])
 
     # Get current proposals and KPIs
