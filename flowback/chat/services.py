@@ -100,6 +100,11 @@ def message_channel_userdata_update(*, user_id: int, channel_id: int, **data):
     channel = get_object(MessageChannel, id=channel_id)
 
     participant = get_object(MessageChannelParticipant, user=user, channel=channel, active=True)
+
+    if data.get('title') is not None:
+        channel.title = data['title']
+        channel.save()
+
     response = model_update(instance=participant,
                             fields=['timestamp', 'closed_at'],
                             data=data)
