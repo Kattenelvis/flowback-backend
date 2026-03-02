@@ -1,7 +1,6 @@
 import django_filters
 from django.db import models
 from django.db.models import OuterRef, Q, Exists, Subquery, F
-from django_filters import FilterSet
 from rest_framework.exceptions import ValidationError
 
 from flowback.common.filters import NumberInFilter
@@ -12,7 +11,7 @@ from flowback.user.models import User, UserChatInvite, UserBookmark
 from backend.settings import env
 
 
-class UserFilter(FilterSet):
+class UserFilter(django_filters.FilterSet):
     class Meta:
         model = User
         fields = {'id': ['exact'],
@@ -143,7 +142,6 @@ def user_home_feed(*, fetched_by: User, filters=None):
                                    user_vote=Subquery(group_thread_vote))
     thread_qs = thread_qs.values(*related_fields)
     thread_qs = UserHomeFeedFilter(filters, thread_qs).qs
-
 
     # Poll
     poll_qs = Poll.objects.filter(
