@@ -77,7 +77,7 @@ def message_channel_preview_list(*, user: User, filters=None):
         active=True
     ).annotate(
         message_created_at=Subquery(message_qs)
-    ).order_by(filters.get('order_by', '-message_created_at'))
+    ).order_by(filters.get('order_by'))
 
     participants = BaseMessageChannelPreviewFilter(filters, qs).qs
 
