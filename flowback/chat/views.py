@@ -60,6 +60,9 @@ class MessageChannelPreviewAPI(APIView):
         closed_at__gte = serializers.DateTimeField(required=False)
         closed_at__lte = serializers.DateTimeField(required=False)
         channel_id = serializers.IntegerField(required=False)
+        order_by = serializers.ChoiceField(required=False,
+                                           default='message_created_at',
+                                           choices=['message_created_at', '-message_created_at'])
 
     class OutputSerializer(serializers.Serializer):
         id = serializers.IntegerField()
