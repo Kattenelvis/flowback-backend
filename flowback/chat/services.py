@@ -101,9 +101,13 @@ def message_channel_userdata_update(*, user_id: int, channel_id: int, **data):
 
     participant = get_object(MessageChannelParticipant, user=user, channel=channel, active=True)
 
+    # TODO: Move this into a separate function that determines message channel properties (not userdata).
     if data.get('title') is not None:
+        if channel.origin_name != 'user_group':
+            raise ValidationError("Channel title can only be changed for group chats")
         channel.title = data['title']
         channel.save()
+        changed_group_name_message(user_id=user_id, channel_id=channel_id)
 
     response = model_update(instance=participant,
                             fields=['timestamp', 'closed_at'],
@@ -176,3 +180,26 @@ def message_channel_topic_create(*, channel_id: int, topic_name: str, hidden: bo
 def message_channel_topic_delete(*, channel_id: int, topic_id: int):
     topic = get_object(MessageChannel, channel_id=channel_id, id=topic_id)
     topic.delete()
+
+
+def changed_group_name_message(*, user_id: int, channel_id: int):
+    # Notify relevant channel via ChatConsumer that chat group name has changed
+    channel = get_object(MessageChannel, id=channel_id)
+    user = get_object(User, id=user_id)
+
+    channel_layer = get_channel_layer()
+
+    payload = dict(
+        type="message",
+        message=f"User {user.username} changed the channel name",
+        method="message_channel_update",
+        channel_id=channel.id,
+        channel_title=channel.title,
+        users=BasicUserSerializer(channel.users.all(), many=True).data,
+        origin_name=channel.origin_name,
+        user_id=user.id,
+        username=user.username,
+    )
+
+    for user in channel.users.all():
+        async_to_sync(channel_layer.group_send)(f"user_{user.id}", payload)
