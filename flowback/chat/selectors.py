@@ -64,6 +64,7 @@ class BaseMessageChannelPreviewFilter(django_filters.FilterSet):
         fields = dict(id=['exact'],
                       user_id=['exact'],
                       closed_at=['gte', 'lte'],
+                      timestamp=['gt', 'lt'],
                       channel_id=['exact'])
 
 
