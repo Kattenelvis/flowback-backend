@@ -66,8 +66,8 @@ class MessageChannelPreviewAPI(APIView):
                                            default='message_created_at',
                                            choices=['created_at', 'created_at_asc',
                                                     '-created_at', 'created_at_desc',
-                                                     'timestamp', 'created_at_asc',
-                                                     '-timestamp', 'created_at_desc'
+                                                    'timestamp', 'created_at_asc',
+                                                    '-timestamp', 'created_at_desc'
                                                     ])
 
     class OutputSerializer(serializers.Serializer):
