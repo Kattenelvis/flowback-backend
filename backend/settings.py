@@ -288,7 +288,7 @@ else:
 
 DATABASES = {'default': db_data}
 
-if TESTING:
+if TESTING and not env('FLOWBACK_PSQL_NAME'):
     with (open(PG_PASS) as pgpass):
         data = pgpass.readlines()[0].replace('\n', '').split(':')
         DATABASES['default']['NAME'] = data[2]
