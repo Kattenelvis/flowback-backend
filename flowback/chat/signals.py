@@ -8,7 +8,7 @@ from flowback.chat.models import MessageChannelParticipant, Message, MessageChan
 
 # TODO: Fix this
 # Uncomment below only when testing chat ws in django tests
-TESTING = False
+# TESTING = False
 
 
 def send_channel_info_message(instance, message: str = None):
