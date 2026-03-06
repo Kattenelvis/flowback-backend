@@ -107,7 +107,7 @@ def message_channel_userdata_update(*, user_id: int, channel_id: int, **data):
             raise ValidationError("Channel title can only be changed for group chats")
         channel.title = data['title']
         channel.save()
-        changed_group_name_message(user_id=user_id, channel_id=channel_id)
+        changed_group_name_message(user_id=user_id, channel_id=channel_id, channel_title=data['title'])
 
     response = model_update(instance=participant,
                             fields=['timestamp', 'closed_at'],
@@ -182,7 +182,7 @@ def message_channel_topic_delete(*, channel_id: int, topic_id: int):
     topic.delete()
 
 
-def changed_group_name_message(*, user_id: int, channel_id: int):
+def changed_group_name_message(*, user_id: int, channel_id: int, channel_title: str):
     # Notify relevant channel via ChatConsumer that chat group name has changed
     channel = get_object(MessageChannel, id=channel_id)
     user = get_object(User, id=user_id)
@@ -191,8 +191,8 @@ def changed_group_name_message(*, user_id: int, channel_id: int):
 
     payload = dict(
         type="message",
-        message=f"User {user.username} changed the channel name",
-        method="message_channel_update",
+        message=f"User {user.username} changed the channel name to {channel_title}",
+        method="changed_group_name_message",
         channel_id=channel.id,
         channel_title=channel.title,
         users=BasicUserSerializer(channel.users.all(), many=True).data,
