@@ -13,6 +13,7 @@ from flowback.user.services import user_get_chat_channel
 from flowback.user.tests.factories import UserFactory
 
 
+# Note: testing this requires uncommenting a field in flowback/chat/signals.py temporarily
 class TestChatWebsocket(APITransactionTestCase):
     def setUp(self):
         self.user_one = UserFactory()

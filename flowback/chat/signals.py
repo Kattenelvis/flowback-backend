@@ -6,6 +6,8 @@ from backend.settings import TESTING
 
 from flowback.chat.models import MessageChannelParticipant, Message
 
+# Uncomment below only when testing chat ws in django tests
+# TESTING = False
 
 def send_join_leave_message(instance):
     channel_layer = get_channel_layer()
@@ -14,9 +16,7 @@ def send_join_leave_message(instance):
         f"{instance.channel.id}",
         dict(type="info",
              channel_id=instance.channel.id,
-             method="message_notify",
-             message=f"User {instance.user.username} {'joined' if instance.active else 'left'} the channel")
-    )
+             message=f"User {instance.user.username} {'joined' if instance.active else 'left'} the channel"))
 
     Message.objects.create(user=instance.user,
                            channel=instance.channel,
