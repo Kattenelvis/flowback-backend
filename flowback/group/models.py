@@ -322,7 +322,7 @@ class GroupUser(BaseModel):
                 instance.group.schedule.add_user(user=instance.user)
 
                 instance.chat_participant.active = True
-                instance.chat_participant.save()
+                instance.chat_participant.save(update_fields=['active'])
 
             else:
                 instance.group.schedule.remove_user(user=instance.user)
@@ -331,7 +331,7 @@ class GroupUser(BaseModel):
                                                   target_id=instance.group.kanban_id).delete()
 
                 instance.chat_participant.active = False
-                instance.chat_participant.save()
+                instance.chat_participant.save(update_fields=['active'])
 
                 if instance.group.notification_channel:
                     instance.group.notification_channel.unsubscribe_all(user=instance.user)
@@ -343,7 +343,7 @@ class GroupUser(BaseModel):
 
         if instance.chat_participant:
             instance.chat_participant.active = False
-            instance.chat_participant.save()
+            instance.chat_participant.save(update_fields=['active'])
 
         if instance.group.notification_channel:
             instance.group.notification_channel.unsubscribe_all(user=instance.user)

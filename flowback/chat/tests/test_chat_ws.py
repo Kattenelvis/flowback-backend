@@ -123,12 +123,14 @@ class TestChatWebsocket(APITransactionTestCase):
         await communicator_two.disconnect()
 
     async def test_send_message_group(self):
-        def message_check(data):
+        def message_check(data, message):
             self.assertNotEqual(data.get('status'), 'error', data)
             self.assertEqual(data.get('message'), message.get('message'))
             self.assertEqual(data.get('channel_id'), message.get('channel_id'))
-            self.assertTrue(data.get('user'))
-            self.assertEqual(data['user'].get('username'), self.user_one.username)
+
+            if not data.get('type') == 'info':
+                self.assertTrue(data.get('user'))
+                self.assertEqual(data['user'].get('username'), self.user_one.username)
 
         communicator_one = await self.connect(user=self.user_one)
         communicator_two = await self.connect(user=self.user_two)
@@ -136,20 +138,32 @@ class TestChatWebsocket(APITransactionTestCase):
         communicator_four = await self.connect(user=self.user_four)
 
         # Message
-        message = dict(channel_id=self.group_message_channel.id, message="test message", method="message_create")
-        await communicator_one.send_json_to(message)
+        msg = dict(channel_id=self.group_message_channel.id, message="test message", method="message_create")
+        await communicator_one.send_json_to(msg)
 
         response = await communicator_one.receive_json_from(timeout=5)
-        message_check(response)
+        message_check(response, msg)
 
         response = await communicator_two.receive_json_from(timeout=5)
-        message_check(response)
+        message_check(response, msg)
 
         response = await communicator_three.receive_json_from(timeout=5)
-        message_check(response)
+        message_check(response, msg)
 
         with self.assertRaises(TimeoutError):
             await communicator_four.receive_json_from(timeout=1)
+
+        joined_msg = dict(channel_id=self.group_message_channel.id, message=f"User {self.user_four.username} joined the channel", method="message_create")
+        group_user_four = await sync_to_async(GroupUserFactory)(group=self.group, user=self.user_four)
+
+        response = await communicator_one.receive_json_from(timeout=5)
+        message_check(response, joined_msg)
+
+        leave_msg = dict(channel_id=self.group_message_channel.id, message=f"User {self.user_four.username} left the channel", method="message_create")
+        await GroupUser.objects.filter(id=group_user_four.id).adelete()
+
+        response = await communicator_one.receive_json_from(timeout=5)
+        message_check(response, leave_msg)
 
         await communicator_one.disconnect()
         await communicator_two.disconnect()
