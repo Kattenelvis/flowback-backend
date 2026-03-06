@@ -114,8 +114,11 @@ def poll_create(*, user_id: int,
                                                   eta=poll.prediction_bet_end_date)
 
     if not poll.dynamic:
+        eta = poll.vote_end_date
+        if version == 2:
+            eta = end_date
         poll_proposal_vote_count.apply_async(kwargs=dict(poll_id=poll.id),
-                                             eta=poll.end_date)
+                                             eta=eta)
 
     notify_group_poll(message="A new poll has been posted",
                       action=NotificationChannel.Action.CREATED,
