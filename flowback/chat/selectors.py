@@ -52,6 +52,10 @@ class BaseMessageChannelPreviewFilter(django_filters.FilterSet):
     origin_names = StringInFilter(field_name='channel__origin_name')
     title = django_filters.CharFilter(field_name='channel__title', lookup_expr='icontains')
     exclude_closed = django_filters.BooleanFilter(method='filter_exclude_closed')
+    order_by = django_filters.OrderingFilter(fields=(('created_at', 'created_at_asc'),
+                                                     ('-created_at', 'created_at_desc'),
+                                                     ('timestamp', 'created_at_asc'),
+                                                     ('-timestamp', 'created_at_desc')))
 
     def filter_exclude_closed(self, queryset, name, value):
         if value:
@@ -78,7 +82,7 @@ def message_channel_preview_list(*, user: User, filters=None):
         active=True
     ).annotate(
         message_created_at=Subquery(message_qs)
-    ).order_by(filters.get('order_by'))
+    )
 
     participants = BaseMessageChannelPreviewFilter(filters, qs).qs
 

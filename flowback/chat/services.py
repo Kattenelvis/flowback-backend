@@ -106,7 +106,6 @@ def message_channel_userdata_update(*, user_id: int, channel_id: int, **data):
             raise ValidationError("Channel title can only be changed for group chats")
         channel.title = data['title']
         channel.save()
-
         message_channel_notify(user_id=user_id, channel_id=channel_id, message=f"User {user.username} has changed the channel name to {data['title']}")
 
     response = model_update(instance=participant,
