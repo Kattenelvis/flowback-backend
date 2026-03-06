@@ -4,7 +4,6 @@ from flowback.chat.models import MessageChannel, Message, MessageChannelParticip
     MessageChannelTopic
 from asgiref.sync import async_to_sync
 from channels.layers import get_channel_layer
-from backend.settings import TESTING
 from flowback.common.services import get_object, model_update
 from flowback.files.services import upload_collection
 from flowback.user.models import User
@@ -129,6 +128,27 @@ def message_channel_delete(*, channel_id: int):
     channel.delete()
 
 
+def message_channel_notify(*, user_id: int, channel_id: int, message: str = None):
+    channel = get_object(MessageChannel, id=channel_id)
+    user = get_object(User, id=user_id)
+    channel_layer = get_channel_layer()
+
+    payload = dict(
+        type="message",
+        message=message or f"User {user.username} has joined the channel",
+        method="message_channel_join",
+        channel_id=channel.id,
+        channel_title=channel.title,
+        users=BasicUserSerializer(channel.users.all(), many=True).data,
+        origin_name=channel.origin_name,
+        user_id=user_id,
+        username=user.username,
+    )
+
+    for u in channel.users.all():
+        async_to_sync(channel_layer.group_send)(f"user_{u.id}", payload)
+
+
 def message_channel_join(*, user_id: int, channel_id: int):
     user = get_object(User, id=user_id)
     channel = get_object(MessageChannel, id=channel_id)
@@ -138,24 +158,7 @@ def message_channel_join(*, user_id: int, channel_id: int):
     participant.full_clean()
     participant.save()
 
-    # Notify relevant user channels via ChatConsumer that a user joined
-    if TESTING:
-        channel_layer = get_channel_layer()
-
-        payload = dict(
-            type="message",
-            message=f"User {user.username} joined the channel",
-            method="message_channel_join",
-            channel_id=channel.id,
-            channel_title=channel.title,
-            users=BasicUserSerializer(channel.users.all(), many=True).data,
-            origin_name=channel.origin_name,
-            user_id=user.id,
-            username=user.username,
-        )
-
-        for user in channel.users.all():
-            async_to_sync(channel_layer.group_send)(f"user_{user.id}", payload)
+    message_channel_notify(user_id=user_id, channel_id=channel_id)
 
     return participant
 
