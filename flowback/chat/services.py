@@ -106,7 +106,6 @@ def message_channel_userdata_update(*, user_id: int, channel_id: int, **data):
             raise ValidationError("Channel title can only be changed for group chats")
         channel.title = data['title']
         channel.save()
-        message_channel_notify(user_id=user_id, channel_id=channel_id, message=f"User {user.username} has changed the channel name to {data['title']}")
 
     response = model_update(instance=participant,
                             fields=['timestamp', 'closed_at'],
@@ -128,27 +127,6 @@ def message_channel_delete(*, channel_id: int):
     channel.delete()
 
 
-def message_channel_notify(*, user_id: int, channel_id: int, message: str = None):
-    channel = get_object(MessageChannel, id=channel_id)
-    user = get_object(User, id=user_id)
-    channel_layer = get_channel_layer()
-
-    payload = dict(
-        type="message",
-        message=message or f"User {user.username} has joined the channel",
-        method="message_channel_join",
-        channel_id=channel.id,
-        channel_title=channel.title,
-        users=BasicUserSerializer(channel.users.all(), many=True).data,
-        origin_name=channel.origin_name,
-        user_id=user_id,
-        username=user.username,
-    )
-
-    for u in channel.users.all():
-        async_to_sync(channel_layer.group_send)(f"user_{u.id}", payload)
-
-
 def message_channel_join(*, user_id: int, channel_id: int):
     user = get_object(User, id=user_id)
     channel = get_object(MessageChannel, id=channel_id)
@@ -157,8 +135,6 @@ def message_channel_join(*, user_id: int, channel_id: int):
                                             channel=channel)
     participant.full_clean()
     participant.save()
-
-    message_channel_notify(user_id=user_id, channel_id=channel_id)
 
     return participant
 

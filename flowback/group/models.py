@@ -10,7 +10,6 @@ from rest_framework.exceptions import ValidationError
 
 from backend.settings import FLOWBACK_DEFAULT_GROUP_JOIN
 from flowback.chat.models import MessageChannel, MessageChannelParticipant
-from flowback.chat.services import message_channel_notify
 from flowback.comment.models import CommentSection, comment_section_create, comment_section_create_model_default
 from flowback.common.models import BaseModel
 from flowback.common.validators import FieldNotBlankValidator
@@ -318,16 +317,12 @@ class GroupUser(BaseModel):
             subscription = KanbanSubscription(kanban_id=instance.user.kanban_id, target_id=instance.group.kanban_id)
             subscription.save()
 
-            message_channel_notify(user_id=instance.user_id, channel_id=instance.group.chat_id)
-
         elif update_fields and 'active' in update_fields:
             if instance.active:
                 instance.group.schedule.add_user(user=instance.user)
 
                 instance.chat_participant.active = True
                 instance.chat_participant.save(update_fields=['active'])
-
-                message_channel_notify(user_id=instance.user_id, channel_id=instance.group.chat_id)
 
             else:
                 instance.group.schedule.remove_user(user=instance.user)
@@ -337,8 +332,6 @@ class GroupUser(BaseModel):
 
                 instance.chat_participant.active = False
                 instance.chat_participant.save(update_fields=['active'])
-
-                message_channel_notify(user_id=instance.user_id, channel_id=instance.group.chat_id, message=f"User {instance.user.user_name} has left the group")
 
                 if instance.group.notification_channel:
                     instance.group.notification_channel.unsubscribe_all(user=instance.user)
