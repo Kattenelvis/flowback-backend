@@ -85,6 +85,10 @@ class ChatConsumer(AsyncWebsocketConsumer):
     async def message(self, content: dict):
         await self.send(text_data=json.dumps(content))
 
+    # Same as above, but exclusively for automated info messages
+    async def info(self, content: dict):
+        await self.send(text_data=json.dumps(content))
+
     @database_sync_to_async
     def get_participating_channels(self):
         return list(MessageChannelParticipant.objects.filter(user=self.user,
