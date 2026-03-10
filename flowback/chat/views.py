@@ -176,7 +176,6 @@ class MessageChannelUserDataUpdateAPI(APIView):
         channel_id = serializers.IntegerField()
         timestamp = serializers.DateTimeField(required=False)
         closed_at = serializers.DateTimeField(required=False)
-        title = serializers.CharField(required=False)
 
     def post(self, request):
         serializer = self.InputSerializer(data=request.data)

@@ -1,43 +1,14 @@
-from asgiref.sync import async_to_sync
-from channels.layers import get_channel_layer
 from django.db.models.signals import post_save, post_delete
 from django.dispatch import receiver
 from backend.settings import TESTING
 
-from flowback.chat.models import MessageChannelParticipant, Message, MessageChannel
+from flowback.chat.models import MessageChannelParticipant
+from flowback.chat.services import send_channel_info_message
+
 
 # TODO: Fix this
 # Uncomment below only when testing chat ws in django tests
 # TESTING = False
-
-
-def send_channel_info_message(instance, message: str = None):
-    channel_layer = get_channel_layer()
-
-    async_to_sync(channel_layer.group_send)(
-        f"{instance.channel.id}",
-        dict(type="info",
-             channel_id=instance.channel.id,
-             message=message))
-
-    Message.objects.create(user=instance.user,
-                           channel=instance.channel,
-                           message=message,
-                           type="info")
-
-
-@receiver(post_save, sender=MessageChannel)
-def messsage_channel_post_save(sender, instance, created, update_fields, **kwargs):
-
-    update_fields = update_fields or []
-
-    if update_fields:
-        if not all(isinstance(field, str) for field in update_fields):
-            update_fields = [field.name for field in update_fields]
-
-    if (created and instance.title) or (not created and "title" in update_fields):
-        if not TESTING:
-            send_channel_info_message(instance, message=f"Channel changed name to {instance.title}")
 
 
 @receiver(post_save, sender=MessageChannelParticipant)

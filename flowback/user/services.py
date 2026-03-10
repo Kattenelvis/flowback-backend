@@ -12,7 +12,7 @@ from rest_framework.exceptions import ValidationError
 
 from backend.settings import DEFAULT_FROM_EMAIL, URL_USER_CREATE, URL_USER_FORGOT_PASSWORD, EMAIL_HOST
 from flowback.chat.models import MessageChannel, MessageChannelParticipant
-from flowback.chat.services import message_channel_create, message_channel_join
+from flowback.chat.services import message_channel_create, message_channel_join, send_channel_info_message
 from flowback.common.services import model_update, get_object
 from flowback.kanban.services import KanbanManager
 from flowback.notification.models import NotificationChannel
@@ -186,21 +186,21 @@ def user_kanban_entry_delete(*, user_id: int, entry_id: int):
                                            entry_id=entry_id)
 
 
-def getTitleName(target_users):
-    title = ""
-    for i, u in enumerate(target_users):
-        if len(title + u.username) > 50:
-            title += (f"{' and' if title else ''} "
-                    f"{target_users.count() - i} "
-                    f"other{'s' if target_users.count() - i != 1 else ''}...")
-            break
-        else:
-            title += f", {u.username}" if i > 0 else u.username
+def user_get_chat_channel(fetched_by: User, target_user_ids: int | list[int], preview: bool = False,
+                          title: str = "") -> MessageChannel:
+    def generate_title(users):
+        channel_title = ""
+        for i, user in enumerate(users):
+            if len(channel_title + user.username) > 50:
+                channel_title += (f"{' and' if channel_title else ''} "
+                                  f"{users.count() - i} "
+                                  f"other(s)...")
+                break
+            else:
+                channel_title += f", {user.username}" if i > 0 else u.username
 
-    return title
+        return channel_title
 
-
-def user_get_chat_channel(fetched_by: User, target_user_ids: int | list[int], preview: bool = False, title: str = "") -> MessageChannel:
     if len(target_user_ids) > 25:
         raise ValidationError("Cannot invite more than 25 users to group.")
 
@@ -239,11 +239,11 @@ def user_get_chat_channel(fetched_by: User, target_user_ids: int | list[int], pr
             raise ValidationError("MessageChannel does not exist between the participants")
 
         if title == "":
-            title = getTitleName(target_users)
+            title = generate_title(target_users)
 
-        channel = message_channel_create(origin_name=f"{User.message_channel_origin}"
-                                                     f"{'_group' if target_users.count() > 2 else ''}",
-                                         title=title if target_users.count() > 1 else None)
+        channel = message_channel_create(origin_name=(User.message_channel_origin if target_users.count() <= 2
+                                                      else User.message_channel_group_origin),
+                                         title=title)
 
         # In the future, make this a bulk_create statement
         share_groups = False
@@ -295,18 +295,21 @@ def user_chat_invite(user_id: int, invite_id: int, accept: bool = True):
     invite.save()
 
 
-def user_chat_channel_update(*, user_id: int, channel_id: int, **data: dict):
-    if MessageChannelParticipant.objects.filter(channel_id=channel_id,
-                                                user_id=user_id,
-                                                active=True,
-                                                channel__origin_name__in=[User.message_channel_origin,
-                                                                          f'{User.message_channel_origin}_group']
-                                                ).exists():
-        channel, has_updated = model_update(instance=MessageChannel.objects.get(id=channel_id),
-                                            fields=['title'],
-                                            data=data)
+def user_chat_channel_update(*, user_id: int, channel_id: int, **data: dict) -> MessageChannel | None:
+    participant = MessageChannelParticipant.objects.get(
+        channel_id=channel_id,
+        user_id=user_id,
+        active=True,
+        channel__origin_name__in=[User.message_channel_origin,
+                                  User.message_channel_group_origin])
 
-        return channel
+    channel, has_updated = model_update(instance=MessageChannel.objects.get(id=channel_id),
+                                        fields=['title'],
+                                        data=data)
+
+    send_channel_info_message(participant, message=f"Channel changed name to {channel.title}")
+
+    return channel
 
 
 def report_create(*, user_id: int, title: str, description: str, group_id: int, post_id: int, post_type: str):
