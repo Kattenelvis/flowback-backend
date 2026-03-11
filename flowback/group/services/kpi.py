@@ -4,7 +4,7 @@ from .permission import group_user_permissions
 from ..models import GroupKPI, GroupKPIValue
 
 
-def group_kpi_create(user_id: int, group_id: int, name: str, values: list[int], description: str = None):
+def group_kpi_create(user_id: int, group_id: int, name: str, values: list[str], description: str = None):
     group_user_permissions(user=user_id, group=group_id, permissions=['admin'])
 
     # TODO: Finish 'Other' implemetation.
