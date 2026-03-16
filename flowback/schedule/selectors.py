@@ -45,17 +45,33 @@ def schedule_event_list(*, user: User, filters=None):
     subscription_qs = ScheduleEventSubscription.objects.filter(event_id=OuterRef('id'),
                                                                schedule_user__user=user)
 
-    subscribed_qs = ScheduleTagSubscription.objects.filter(schedule_user__user=user,
-                                                           schedule_tag=OuterRef('tag'))
-
     qs = ScheduleEvent.objects.filter(
         schedule__scheduleuser__user=user
     ).annotate(reminders=Subquery(subscription_qs.values('reminders')),
                user_tags=Subquery(subscription_qs.values('tags')),
                locked=Subquery(subscription_qs.values('locked')),
-               subscribed=Exists(subscribed_qs)).all()
+               subscribed=Exists(subscription_qs)).all()
 
     return ScheduleEventBaseFilter(filters, qs).qs
+
+
+class ScheduleTagSubscriptionBaseFilter(django_filters.FilterSet):
+    origin_name = django_filters.CharFilter(field_name='schedule_user__schedule__content_type__model',
+                                            lookup_expr='iexact')
+    origin_ids = NumberInFilter(field_name='schedule_user__schedule__object_id')
+    schedule_ids = NumberInFilter(field_name='schedule_user__schedule_id')
+    tag_name = django_filters.CharFilter(field_name='schedule_tag__name')
+
+    class Meta:
+        model = ScheduleTagSubscription
+        fields = dict(id=['exact'])
+
+
+def schedule_tag_subscription_list(*, user: User, filters=None):
+    filters = filters or {}
+
+    qs = ScheduleTagSubscription.objects.filter(schedule_user__user=user).all()
+    return ScheduleTagSubscriptionBaseFilter(filters, qs).qs
 
 
 class ScheduleBaseFilter(django_filters.FilterSet):

@@ -10,18 +10,22 @@ def event_notify(event_id: int):
     """
     :param event_id:  ScheduleEvent id
     """
-    event = ScheduleEvent.objects.get(id=event_id)
+    event = ScheduleEvent.objects.filter(id=event_id).first()
+
+    # Stop notifying if event is removed
+    if not event or not event.repeat_frequency:
+        PeriodicTask.objects.filter(name=f"schedule_event_{event_id}").delete()
 
     # Skip notify if scheduled at a later date
     if event.start_date > timezone.now():
         return
 
-    # Stop notifying if scheduled after end_date
-    if (not event
-        or (not event.repeat_frequency
-            and event.end_date
-            and event.end_date < timezone.now())):
-        PeriodicTask.objects.filter(name=f"schedule_event_{event_id}").delete()
+    task = PeriodicTask.objects.filter(name=f"schedule_event_{event_id}")
 
-    if event.repeat_frequency:
+    # Skip regenerating notifications if the event is about to expire
+    if (event.repeat_frequency_end_date
+            and task.crontab.schedule.is_due(timezone.now()) < event.repeat_frequency_end_date):
+        return
+
+    else:
         event.regenerate_notifications()
