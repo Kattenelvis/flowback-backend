@@ -1,14 +1,25 @@
 from collections import OrderedDict
 
-from rest_framework.pagination import LimitOffsetPagination as _LimitOffsetPagination
+from rest_framework.pagination import LimitOffsetPagination as _LimitOffsetPagination, LimitOffsetPagination
 from rest_framework.response import Response
 
 
 # Default pagination getter for list views
-def get_paginated_response(*, pagination_class, serializer_class, queryset, request, view):
+def get_paginated_response(*,
+                           pagination_class = LimitOffsetPagination,
+                           serializer_class = None,
+                           queryset,
+                           request,
+                           view):
     paginator = pagination_class()
 
     page = paginator.paginate_queryset(queryset, request, view=view)
+
+    if serializer_class is None:
+        if not hasattr(view, "OutputSerializer"):
+            raise ValueError("Paginated response attempted to get OutputSerializer from view, but it does not exist.")
+
+        serializer_class = view.OutputSerializer
 
     if page is not None:
         serializer = serializer_class(page, many=True)
