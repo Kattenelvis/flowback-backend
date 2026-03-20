@@ -4,7 +4,7 @@ from rest_framework.views import APIView
 
 from flowback.common.pagination import get_paginated_response, LimitOffsetPagination
 from flowback.group.serializers import GroupUserSerializer
-from flowback.schedule.selectors import schedule_list, schedule_event_list
+from flowback.schedule.selectors import schedule_list, schedule_event_list, schedule_tag_subscription_list
 from flowback.common.fields import CharacterSeparatedField
 from flowback.schedule.services import (schedule_event_subscribe,
                                         schedule_event_unsubscribe,
@@ -120,6 +120,40 @@ class ScheduleEventListAPI(APIView):
         return get_paginated_response(pagination_class=LimitOffsetPagination,
                                       serializer_class=self.OutputSerializer,
                                       queryset=events,
+                                      request=request,
+                                      view=self)
+
+
+class ScheduleTagSubscriptionListAPI(APIView):
+    class Pagination(LimitOffsetPagination):
+        max_limit = 100
+        default_limit = 25
+
+    class FilterSerializer(serializers.Serializer):
+        id = serializers.IntegerField(required=False)
+        origin_name = serializers.CharField(required=False)
+        origin_ids = CharacterSeparatedField(child=serializers.IntegerField(),
+                                             required=False,
+                                             allow_null=True,
+                                             max_length=100)
+        schedule_ids = CharacterSeparatedField(child=serializers.CharField(),
+                                               required=False,
+                                               allow_null=True,
+                                               max_length=100)
+        tag_name = serializers.CharField(required=False)
+
+    class OutputSerializer(serializers.Serializer):
+        schedule_id = serializers.IntegerField(source='schedule_user.schedule_id')
+        schedule_tag_id = serializers.IntegerField()
+        schedule_tag_name = serializers.CharField(source='schedule_tag.name')
+        reminders = serializers.ListField(child=serializers.IntegerField())
+
+    def post(self, request):
+        serializer = self.FilterSerializer(data=request.query_params)
+        serializer.is_valid(raise_exception=True)
+
+        subscriptions = schedule_tag_subscription_list(user=request.user, filters=serializer.validated_data)
+        return get_paginated_response(queryset=subscriptions,
                                       request=request,
                                       view=self)
 

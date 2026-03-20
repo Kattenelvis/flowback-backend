@@ -21,7 +21,8 @@ from flowback.schedule.tests.factories import (ScheduleEventFactory, ScheduleUse
                                                ScheduleTagFactory, ScheduleEventSubscriptionFactory,
                                                ScheduleTagSubscriptionFactory)
 from flowback.schedule.views import (ScheduleEventListAPI,
-                                     ScheduleEventSubscribeAPI, ScheduleEventUnsubscribeAPI)
+                                     ScheduleEventSubscribeAPI, ScheduleEventUnsubscribeAPI,
+                                     ScheduleTagSubscriptionListAPI)
 from flowback.user.tests.factories import UserFactory
 from flowback.group.tests.factories import GroupFactory, GroupUserFactory
 
@@ -355,22 +356,32 @@ class ScheduleEventSelectorTest(APITestCase):
         # Two events on same schedule/tag
         e1 = ScheduleEventFactory.create(schedule=self.group1.schedule, tag=self.tag1)
         e2 = ScheduleEventFactory.create(schedule=self.group1.schedule, tag=self.tag1)
-        # User has access
 
-        # Subscribe to tag so both events are annotated subscribed=True
-        ScheduleTagSubscriptionFactory.create(schedule_user=self.schedule_user1, schedule_tag=self.tag1)
-
-        # Additionally, create an event subscription for e1 with locked=False
         ScheduleEventSubscriptionFactory.create(event=e1, schedule_user=self.schedule_user1, locked=False)
+        ScheduleEventSubscriptionFactory.create(event=e2, schedule_user=self.schedule_user1, locked=True)
 
         # Filter subscribed True should include events on the subscribed tag
         events = schedule_event_list(user=self.user1, filters={'subscribed': True})
         ids = set(events.values_list('id', flat=True))
-        self.assertTrue({e1.id, e2.id}.issubset(ids))
+        self.assertTrue({e1.id, e2.id}.issubset(ids), ids)
 
         # locked False should only include e1 due to explicit event subscription with locked False
         events = schedule_event_list(user=self.user1, filters={'locked': False})
         self.assertEqual(list(events.values_list('id', flat=True)), [e1.id])
+
+    def test_schedule_event_tag_subscription_list(self):
+        data = dict(schedule_user=self.schedule_user1,
+                    schedule_tag_id=self.tag1.id,
+                    reminders=[300, 1500, 36000])
+        ScheduleTagSubscriptionFactory(**data)
+
+        data.pop('schedule_user')
+
+        response = generate_request(api=ScheduleTagSubscriptionListAPI,
+                                    user=self.schedule_user1.user)
+
+        for k, v in data.items():
+            self.assertEqual(response.data[0][k], v, k)
 
 
 class ScheduleEventServiceTest(APITestCase):

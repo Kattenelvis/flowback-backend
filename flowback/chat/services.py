@@ -1,5 +1,6 @@
 from rest_framework.exceptions import ValidationError
 
+from backend.settings import TESTING
 from flowback.chat.models import MessageChannel, Message, MessageChannelParticipant, MessageFileCollection, \
     MessageChannelTopic
 from asgiref.sync import async_to_sync
@@ -100,13 +101,6 @@ def message_channel_userdata_update(*, user_id: int, channel_id: int, **data):
 
     participant = get_object(MessageChannelParticipant, user=user, channel=channel, active=True)
 
-    # TODO: Move this into a separate function that determines message channel properties (not userdata).
-    if data.get('title') is not None:
-        if channel.origin_name != 'user_group':
-            raise ValidationError("Channel title can only be changed for group chats")
-        channel.title = data['title']
-        channel.save()
-
     response = model_update(instance=participant,
                             fields=['timestamp', 'closed_at'],
                             data=data)
@@ -159,3 +153,19 @@ def message_channel_topic_create(*, channel_id: int, topic_name: str, hidden: bo
 def message_channel_topic_delete(*, channel_id: int, topic_id: int):
     topic = get_object(MessageChannel, channel_id=channel_id, id=topic_id)
     topic.delete()
+
+
+def send_channel_info_message(participant: MessageChannelParticipant, message: str = None):
+    if not TESTING:
+        channel_layer = get_channel_layer()
+
+        async_to_sync(channel_layer.group_send)(
+            f"{participant.channel.id}",
+            dict(type="info",
+                 channel_id=participant.channel.id,
+                 message=message))
+
+    Message.objects.create(user=participant.user,
+                           channel=participant.channel,
+                           message=message,
+                           type="info")
