@@ -288,7 +288,7 @@ def poll_proposal_kpi_bet(user_id: int,
 def poll_proposal_kpi_vote(user_id: int,
                            proposal_id: int,
                            kpi_id: int,
-                           vote: int = None) -> PollProposalKPIVote | None:
+                           vote: str = None) -> PollProposalKPIVote | None:
     proposal = PollProposal.objects.get(id=proposal_id, poll__active=True)
     group_user = group_user_permissions(user=user_id, group=proposal.created_by.group, permissions=['admin',
                                                                                                     'allow_vote'])
