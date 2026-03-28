@@ -205,6 +205,9 @@ def poll_fast_forward(*, user_id: int, poll_id: int, phase: str):
         if tt_entry[1] not in label_fields:
             setattr(poll, tt_entry[1], None)
 
+    if (poll.poll_type == Poll.PollType.SCHEDULE):
+        poll.status = 1
+
     poll.full_clean()
     poll.save()
 
