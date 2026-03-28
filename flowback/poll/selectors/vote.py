@@ -53,7 +53,8 @@ class BasePollDelegateVotingFilter(django_filters.FilterSet):
 def delegate_poll_vote_list(*, fetched_by: User, group_id: int, **filters):
     filters = filters or {}
     group_user = group_user_permissions(user=fetched_by, group=group_id)
-    qs = PollDelegateVoting.objects.filter(poll__created_by__group_id=group_id).exclude(created_by__groupuserdelegate__group_user=group_user)
+    qs = PollDelegateVoting.objects.filter(poll__created_by__group_id=group_id,
+                                           created_by__groupuserdelegator__delegator=group_user)
     return BaseDelegatePollVoteFilter(filters, qs).qs
 
 
