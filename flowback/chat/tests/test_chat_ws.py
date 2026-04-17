@@ -1,6 +1,6 @@
 from asgiref.sync import sync_to_async
 from channels.testing import WebsocketCommunicator
-from rest_framework.authtoken.models import Token
+from knox.models import AuthToken
 from rest_framework.test import APITransactionTestCase
 
 from backend.middleware import TokenAuthMiddleware
@@ -31,15 +31,20 @@ class TestChatWebsocket(APITransactionTestCase):
         self.group_user_two = GroupUserFactory(group=self.group, user=self.user_two)
         self.group_user_three = GroupUserFactory(group=self.group, user=self.user_three)
 
+    @sync_to_async(thread_sensitive=True)
+    def get_auth_token(self, user: User):
+        instance, token = AuthToken.objects.create(user=user)
+        return token
+
     async def connect(self, user: User | UserFactory) -> WebsocketCommunicator:
         """
         Communicates with the websocket
         Remember to disconnect using communicator.disconnect()
         :return: WebsocketCommunicator
         """
-        user_one_token, created = await Token.objects.aget_or_create(user=user)
+        token = await self.get_auth_token(user=user)
         application = TokenAuthMiddleware(ChatConsumer.as_asgi())
-        communicator = WebsocketCommunicator(application, f"/chat/ws?token={user_one_token.key}")
+        communicator = WebsocketCommunicator(application, f"/chat/ws?token={token}")
         connected, subprotocol = await communicator.connect()
         self.assertTrue(connected)
         return communicator
