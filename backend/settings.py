@@ -136,8 +136,8 @@ INSTALLED_APPS = [
     'django.contrib.staticfiles',
     'corsheaders',
     'rest_framework',
+    'knox',
     'django_extensions',
-    'rest_framework.authtoken',
     'django_celery_beat',
     'pgtrigger',
     'oidc_provider',
@@ -161,7 +161,7 @@ CELERY_BROKER_URL = f"redis://{env('FLOWBACK_REDIS_HOST')}:{env('FLOWBACK_REDIS_
 REST_FRAMEWORK = {
     'DEFAULT_SCHEMA_CLASS': 'flowback.common.documentation.CustomAutoSchema',
     'DEFAULT_AUTHENTICATION_CLASSES': [
-        'rest_framework.authentication.TokenAuthentication'
+        'knox.auth.TokenAuthentication'
     ],
     'DEFAULT_PERMISSION_CLASSES': (
         env('FLOWBACK_DEFAULT_PERMISSION'),

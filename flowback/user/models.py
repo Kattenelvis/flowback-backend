@@ -11,7 +11,6 @@ from django.utils import timezone
 from django.utils.functional import classproperty
 from django.utils.translation import gettext_lazy as _
 
-from rest_framework.authtoken.models import Token
 from flowback.chat.models import MessageChannelParticipant
 from flowback.common.models import BaseModel
 from flowback.common.validators import FieldNotBlankValidator
@@ -33,8 +32,6 @@ class CustomUserManager(BaseUserManager):
         user.full_clean()
         user.save()
 
-        Token.objects.create(user=user)
-
         return user
 
     def create_superuser(self, *, username, email, password):
@@ -49,8 +46,6 @@ class CustomUserManager(BaseUserManager):
         user.set_password(password)
         user.full_clean()
         user.save(using=self._db)
-
-        Token.objects.create(user=user)
 
         return user
 

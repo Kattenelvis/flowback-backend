@@ -1,5 +1,6 @@
-from django.urls import path
-from rest_framework.authtoken import views
+from django.urls import path, include
+from knox.views import LoginView
+from knox import views as knox_views
 
 from backend.settings import FLOWBACK_DISABLE_DEFAULT_USER_REGISTRATION
 from flowback.user.views.report import ReportCreateAPI
@@ -23,9 +24,9 @@ from flowback.user.views.kanban import (UserKanbanEntryListAPI,
 from flowback.user.views.home import UserHomeFeedAPI
 
 user_patterns = [
-    path('login', views.obtain_auth_token, name='login'),
-    path('logout', UserLogoutAPI.as_view(), name='logout'),
-    path('forgot_password', UserForgotPasswordApi.as_view(), name='forgot_password'),
+    path(r'login/', LoginView.as_view(), name='knox_login'),
+    path(r'logout/', knox_views.LogoutView.as_view(), name='knox_logout'),
+    path(r'logoutall/', knox_views.LogoutAllView.as_view(), name='knox_logoutall'),    path('forgot_password', UserForgotPasswordApi.as_view(), name='forgot_password'),
     path('forgot_password/verify', UserForgotPasswordVerifyApi.as_view(), name='forgot_password_verify'),
     path('users', UserListApi.as_view(), name='users'),
     path('user', UserGetApi.as_view(), name='user'),
