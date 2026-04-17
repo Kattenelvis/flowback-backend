@@ -1,6 +1,7 @@
 from datetime import timedelta
 
 from flowback.common.tests import generate_request
+from flowback.poll.views.poll import PollListApi
 from flowback.poll.views.vote import PollProposalVoteUpdateAPI
 from flowback.user.models import User
 import time_machine
@@ -66,11 +67,25 @@ class DatePollScheduleNotificationTest(APITestCase):
 
         poll.refresh_from_db()
 
+        events = ScheduleEvent.objects.filter(schedule=self.group.schedule)
+        print(events.first().start_date, event_start, "ALL EVENTS")
+
         event = ScheduleEvent.objects.filter(schedule=self.group.schedule).first()
         self.assertIsNotNone(
             event, "A ScheduleEvent should be created after poll completion"
         )
         self.assertEqual(event.start_date, event_start)
+
+        list_response = generate_request(
+            api=PollListApi,
+            data=dict(id=poll.id),
+            user=self.creator.user,
+            url_params=dict(group_id=self.group.id),
+        )
+
+        print(list_response.data["results"][0], "LIST")
+        self.assertEqual(list_response.status_code, 200)
+        self.assertEqual(list_response.data["count"], 1)
 
         # Build timed notification objects for the event's start date
         event.regenerate_notifications()
