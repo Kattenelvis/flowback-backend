@@ -1,8 +1,8 @@
 from datetime import timedelta
 
 from flowback.common.tests import generate_request
-from flowback.poll.views.poll import PollListApi
 from flowback.poll.views.vote import PollProposalVoteUpdateAPI
+from flowback.schedule.views import ScheduleEventListAPI
 from flowback.user.models import User
 import time_machine
 from django.utils import timezone
@@ -77,10 +77,9 @@ class DatePollScheduleNotificationTest(APITestCase):
         self.assertEqual(event.start_date, event_start)
 
         list_response = generate_request(
-            api=PollListApi,
-            data=dict(id=poll.id),
+            api=ScheduleEventListAPI,
+            data=dict(schedule_ids=str(self.group.schedule.id)),
             user=self.creator.user,
-            url_params=dict(group_id=self.group.id),
         )
 
         print(list_response.data["results"][0], "LIST")
