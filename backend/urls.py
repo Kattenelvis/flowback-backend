@@ -45,6 +45,7 @@ urlpatterns = [
     path(f'{URL_SUBPATH}/' if URL_SUBPATH else '', include((api_urlpatterns, 'api'))),
     path('admin/', admin.site.urls, name='admin'),
     path('openid/', include('oidc_provider.urls', namespace='oidc_provider')),
+    path('prometheus/', include('django_prometheus.urls')),
 ]
 
 if DEBUG:

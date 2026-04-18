@@ -32,4 +32,5 @@ phonenumbers==8.13.47
 sphinx-rtd-theme==3.0.1 # For ReadTheDocs
 django-rest-knox==5.0.2
 freezegun==1.5.5
+django-prometheus==2.3.1
 # GitPython==3.1.44 # (Maybe add it in future to share git version on the backend)

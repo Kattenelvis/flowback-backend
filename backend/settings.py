@@ -153,6 +153,7 @@ INSTALLED_APPS = [
     'flowback.server',
     'drf_spectacular',
     'phonenumber_field',
+    'django_prometheus',
     ] + env('INTEGRATIONS')
 
 
@@ -179,6 +180,7 @@ SPECTACULAR_SETTINGS = {
 AUTH_USER_MODEL = 'user.User'
 
 MIDDLEWARE = [
+    'django_prometheus.middleware.PrometheusBeforeMiddleware',
     'corsheaders.middleware.CorsMiddleware',
     'django.middleware.security.SecurityMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
@@ -187,6 +189,7 @@ MIDDLEWARE = [
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
+    'django_prometheus.middleware.PrometheusAfterMiddleware',
 ]
 
 ROOT_URLCONF = 'backend.urls'
