@@ -2,9 +2,9 @@ name: Docker
 
 on:
   push:
-    branches: [master, development]
+    branches: [master, development, promethius]
   pull_request:
-    branches: [master, development]
+    branches: [master, development, promethius]
 
 jobs:
   build:
