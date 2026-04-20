@@ -1,6 +1,7 @@
 import json
 import math
 
+from knox.auth import TokenAuthentication
 from rest_framework import status
 from rest_framework.test import APITestCase, APIRequestFactory, force_authenticate
 
@@ -19,7 +20,7 @@ from flowback.user.services import user_create, user_create_verify, user_delete
 from flowback.user.tests.factories import UserFactory
 from flowback.user.views.home import UserHomeFeedAPI
 from flowback.user.views.user import UserDeleteAPI, UserGetChatChannelAPI, UserUpdateApi, UserChatInviteAPI, UserGetApi, \
-    UserNotificationSubscribeAPI, UserCreateApi
+    UserNotificationSubscribeAPI, UserCreateApi, UserLoginAPI
 from flowback.user.models import OnboardUser
 
 
@@ -28,6 +29,24 @@ class UserTest(APITestCase):
         (self.user_one,
          self.user_two,
          self.user_three) = (UserFactory() for x in range(3))
+
+    def test_user_login(self):
+        data = dict(username='test', password="test123")
+        user = User.objects.create(username=data['username'])
+        user.set_password(data['password'])
+        user.save()
+
+        self.assertTrue(user.username, data['username'])
+        self.assertTrue(user.check_password(data['password']))
+
+        response = generate_request(UserLoginAPI, data=data)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        factory = APIRequestFactory()
+        view = UserGetApi.as_view()
+        request = factory.get('', headers=dict(Authorization=f'Token {response.data}'))
+        response = view(request)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
 
     def test_user_delete(self):
         user = self.user_one
