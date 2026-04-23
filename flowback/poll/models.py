@@ -107,7 +107,7 @@ class Poll(BaseModel, NotifiableModel):
     def finished(self):
         if self.version == 2 or self.poll_type == self.PollType.SCHEDULE:
             return self.end_date <= timezone.now()
-        return self.vote_end_date <= timezone.now()
+        return self.vote_end_date or self.end_date <= timezone.now()
 
     @property
     def labels(self) -> tuple:

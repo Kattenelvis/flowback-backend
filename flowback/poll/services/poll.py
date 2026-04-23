@@ -226,17 +226,17 @@ def poll_fast_forward(*, user_id: int, poll_id: int, phase: str):
             else:
                 poll_area_vote_count(poll_id=poll.id)
 
-        if poll.prediction_bet_end_date and poll.prediction_bet_end_date > timezone.now():
-            poll_prediction_bet_count.apply_async(kwargs=dict(poll_id=poll.id), eta=poll.prediction_bet_end_date)
+            if poll.prediction_bet_end_date and poll.prediction_bet_end_date > timezone.now():
+                poll_prediction_bet_count.apply_async(kwargs=dict(poll_id=poll.id), eta=poll.prediction_bet_end_date)
 
-        else:
-            poll_prediction_bet_count(poll_id=poll.id)
+            else:
+                poll_prediction_bet_count(poll_id=poll.id)
 
-    if poll.poll_type == Poll.PollType.SCHEDULE or not poll.dynamic:
-        if poll.end_date > timezone.now():
-            poll_proposal_vote_count.apply_async(kwargs=dict(poll_id=poll.id), eta=poll.end_date)
-        else:
-            poll_proposal_vote_count(poll_id=poll.id)
+    if poll.end_date > timezone.now():
+        poll_proposal_vote_count.apply_async(kwargs=dict(poll_id=poll.id), eta=poll.end_date)
+
+    else:
+        poll_proposal_vote_count(poll_id=poll.id)
 
     notify_poll_phase(message=f"Poll has been fast forwarded "
                               f"to {poll.current_phase.replace('_', ' ').capitalize()}",

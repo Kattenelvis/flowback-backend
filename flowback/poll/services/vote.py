@@ -96,12 +96,13 @@ def poll_proposal_vote_update(*, user_id: int, poll_id: int, data: dict) -> None
         PollVotingTypeForAgainst.objects.filter(author=poll_vote).delete()
         PollVotingTypeForAgainst.objects.bulk_create(poll_vote_schedule)
 
-        PollProposalTypeSchedule.objects.filter(proposal_id__in=old_proposal_ids).update(
-            preliminary_score=F('preliminary_score') - 1
-        )
-        PollProposalTypeSchedule.objects.filter(proposal_id__in=data['proposals']).update(
-            preliminary_score=F('preliminary_score') + 1
-        )
+        # Removes all previous scores from preliminary_score. If a proposal is in both old and new,
+        # it essentially sets it back to the previous value (e.g., +1 vote)
+        PollProposalTypeSchedule.objects.filter(proposal_id__in=old_proposal_ids
+                                                ).update(preliminary_score=F('preliminary_score') - 1)
+
+        PollProposalTypeSchedule.objects.filter(proposal_id__in=data['proposals']
+                                                ).update(preliminary_score=F('preliminary_score') + 1)
 
     else:
         raise ValidationError('Unknown poll type')
