@@ -205,9 +205,6 @@ def poll_fast_forward(*, user_id: int, poll_id: int, phase: str):
         if tt_entry[1] not in label_fields:
             setattr(poll, tt_entry[1], None)
 
-    if (poll.poll_type == Poll.PollType.SCHEDULE):
-        poll.status = 1
-
     poll.full_clean()
     poll.save()
 
@@ -235,7 +232,7 @@ def poll_fast_forward(*, user_id: int, poll_id: int, phase: str):
         else:
             poll_prediction_bet_count(poll_id=poll.id)
 
-    if not poll.dynamic:
+    if poll.poll_type == Poll.PollType.SCHEDULE or not poll.dynamic:
         if poll.end_date > timezone.now():
             poll_proposal_vote_count.apply_async(kwargs=dict(poll_id=poll.id), eta=poll.end_date)
         else:
