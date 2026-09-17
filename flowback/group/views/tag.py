@@ -5,7 +5,7 @@ from rest_framework.views import APIView
 from flowback.common.pagination import LimitOffsetPagination, get_paginated_response
 
 from flowback.group.models import GroupTags
-from flowback.group.selectors import group_tags_list, group_tags_interval_mean_absolute_correctness
+from flowback.group.selectors.tags import group_tags_list
 from flowback.group.services.tag import (group_tag_create,
                                          group_tag_update,
                                          group_tag_delete)
@@ -20,18 +20,21 @@ class GroupTagsListApi(APIView):
         id = serializers.IntegerField(required=False)
         tag_name = serializers.CharField(required=False)
         tag_name__icontains = serializers.CharField(required=False)
+        description = serializers.CharField(required=False)
+        description__icontains = serializers.CharField(required=False)
         active = serializers.BooleanField(required=False, default=None, allow_null=True)
 
     class OutputSerializer(serializers.ModelSerializer):
+        imac = serializers.DecimalField(max_digits=13, decimal_places=8, help_text="Interval Mean Absolute Correctness")
         class Meta:
             model = GroupTags
-            fields = ('id', 'name', 'active')
+            fields = ('id', 'name', 'description', 'active', 'imac')
 
-    def get(self, request, group: int):
+    def get(self, request, group_id: int):
         filter_serializer = self.FilterSerializer(data=request.query_params)
         filter_serializer.is_valid(raise_exception=True)
 
-        tags = group_tags_list(group=group,
+        tags = group_tags_list(group_id=group_id,
                                fetched_by=request.user,
                                filters=filter_serializer.validated_data)
 
@@ -44,20 +47,12 @@ class GroupTagsListApi(APIView):
         )
 
 
-# TODO make this a part of GroupTagsListAPI
-@extend_schema(tags=['group/tag'])
-class GroupTagIntervalMeanAbsoluteCorrectnessAPI(APIView):
-    def get(self, request, tag_id: int):
-        val = group_tags_interval_mean_absolute_correctness(tag_id=tag_id, fetched_by=request.user)
-        return Response(status=status.HTTP_200_OK, data=val)
-
-
 @extend_schema(tags=['group/tag'])
 class GroupTagsCreateApi(APIView):
     class InputSerializer(serializers.ModelSerializer):
         class Meta:
             model = GroupTags
-            fields = ('name',)
+            fields = ('name', 'description')
 
     def post(self, request, group: int):
         serializer = self.InputSerializer(data=request.data)
@@ -72,7 +67,8 @@ class GroupTagsCreateApi(APIView):
 class GroupTagsUpdateApi(APIView):
     class InputSerializer(serializers.Serializer):
         tag = serializers.IntegerField()
-        active = serializers.BooleanField()
+        description = serializers.CharField(required=False)
+        active = serializers.BooleanField(required=False)
 
     def post(self, request, group: int):
         serializer = self.InputSerializer(data=request.data)

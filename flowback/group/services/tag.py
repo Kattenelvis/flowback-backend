@@ -2,12 +2,12 @@ from rest_framework.exceptions import ValidationError
 
 from flowback.common.services import get_object, model_update
 from flowback.group.models import GroupTags
-from flowback.group.selectors import group_user_permissions
+from flowback.group.selectors.permission import group_user_permissions
 
 
-def group_tag_create(*, user: int, group: int, name: str) -> GroupTags:
+def group_tag_create(*, user: int, group: int, name: str, description: str = None) -> GroupTags:
     group_user_permissions(user=user, group=group, permissions=['admin'])
-    tag = GroupTags(name=name, group_id=group)
+    tag = GroupTags(name=name, description=description, group_id=group)
     tag.full_clean()
     tag.save()
 
@@ -17,7 +17,7 @@ def group_tag_create(*, user: int, group: int, name: str) -> GroupTags:
 def group_tag_update(*, user: int, group: int, tag: int, data) -> GroupTags:
     group_user_permissions(user=user, group=group, permissions=['admin'])
     tag = get_object(GroupTags, group_id=group, id=tag)
-    non_side_effect_fields = ['active']
+    non_side_effect_fields = ['active', 'description']
 
     if (GroupTags.objects.filter(group_id=group, active=True).count() <= 1
             and tag.active

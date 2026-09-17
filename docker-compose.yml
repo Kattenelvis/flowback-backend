@@ -14,9 +14,6 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
-    env_file:
-      - path: ./.env
-        required: false
 #    ports:
 #      - "5432:5432"
 
@@ -26,28 +23,17 @@ services:
 #    ports:
 #      - "6379:6379"
 
-  flowback-rabbitmq:
-    image: rabbitmq:3.13
-    hostname: flowback
-    restart: unless-stopped
-    environment:
-      RABBITMQ_DEFAULT_USER: flowback
-      RABBITMQ_DEFAULT_PASS: flowback
-      RABBITMQ_DEFAULT_VHOST: flowback
-#    ports:
-#      - "5672:5672"
-#      - "15672:15672"
-
   flowback-backend:
     build: .
+    restart: unless-stopped
     command: >
-      bash -c "python manage.py migrate
+      bash -c "pip install --no-cache-dir -r requirements.txt
+      && python manage.py migrate
       && python manage.py runserver 0.0.0.0:${PORT:-8000}"
     ports:
       - ${PORT:-8000}:${PORT:-8000}
     volumes:
-      - ./media:/app/media
-      - ./static:/app/static
+      - .:/app
     depends_on:
       flowback-postgresql:
         condition: service_healthy
@@ -58,10 +44,44 @@ services:
       FLOWBACK_PSQL_HOST: ${POSTGRES_HOST:-flowback-postgresql}
       FLOWBACK_PSQL_PORT: ${POSTGRES_PORT:-5432}
       FLOWBACK_REDIS_HOST: ${REDIS_HOST:-flowback-redis}
-      FLOWBACK_RABBITMQ_HOST: ${RABBITMQ_HOST:-flowback-rabbitmq}
-    env_file:
-      - path: ./.env
-        required: false
+
+  flowback-celery-worker:
+    build: .
+    restart: unless-stopped
+    command: >
+      bash -c "pip install --no-cache-dir -r requirements.txt
+      && celery -A backend worker --loglevel=info"
+    depends_on:
+      - flowback-backend
+      - flowback-redis
+    volumes:
+      - .:/app # For persisting periodic task metadata
+    environment:
+      FLOWBACK_PSQL_NAME: ${POSTGRES_DB:-flowback}
+      FLOWBACK_PSQL_USER: ${POSTGRES_USER:-flowback}
+      FLOWBACK_PSQL_PASSWORD: ${POSTGRES_PASSWORD:-flowback}
+      FLOWBACK_PSQL_HOST: ${POSTGRES_HOST:-flowback-postgresql}
+      FLOWBACK_PSQL_PORT: ${POSTGRES_PORT:-5432}
+      FLOWBACK_REDIS_HOST: ${REDIS_HOST:-flowback-redis}
+
+  flowback-celery-beat:
+    build: .
+    restart: unless-stopped
+    command: >
+      bash -c "pip install --no-cache-dir -r requirements.txt
+      && celery -A backend beat --loglevel=info"
+    depends_on:
+      - flowback-backend
+      - flowback-redis
+    volumes:
+      - .:/app # For persisting periodic task metadata
+    environment:
+      FLOWBACK_PSQL_NAME: ${POSTGRES_DB:-flowback}
+      FLOWBACK_PSQL_USER: ${POSTGRES_USER:-flowback}
+      FLOWBACK_PSQL_PASSWORD: ${POSTGRES_PASSWORD:-flowback}
+      FLOWBACK_PSQL_HOST: ${POSTGRES_HOST:-flowback-postgresql}
+      FLOWBACK_PSQL_PORT: ${POSTGRES_PORT:-5432}
+      FLOWBACK_REDIS_HOST: ${REDIS_HOST:-flowback-redis}
 
 volumes:
   postgres_data:

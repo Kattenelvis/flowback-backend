@@ -1,14 +1,17 @@
 import django_filters
 from django.db import models
-from django.db.models import Avg, When, F, Case, Count, Q, Exists, Subquery, OuterRef
-from django.db.models.fields.related import RelatedField
+from django.db.models import Avg, When, F, Case, Count, Q, OuterRef
 from django.db.models.lookups import LessThan
 from django.utils import timezone
 
 from flowback.common.filters import NumberInFilter
-from flowback.group.selectors import group_user_permissions
-from flowback.poll.models import PollPredictionStatement, PollPredictionBet, PollPredictionStatementVote, \
-    PollPredictionStatementSegment
+from flowback.group.selectors.permission import group_user_permissions
+from flowback.poll.phases import (PollPredictionBet,
+                                  PollPredictionStatement,
+                                  PollPredictionStatementVote,
+                                  PollProposalKPI,
+                                  PollProposalKPIBet,
+                                  PollProposalKPIVote)
 from flowback.user.models import User
 
 
@@ -41,7 +44,8 @@ def poll_prediction_statement_list(*, fetched_by: User, group_id: int, filters=N
     user_vote = PollPredictionStatementVote.objects.filter(prediction_statement=OuterRef('pk'),
                                                            created_by=group_user).values('vote')
 
-    qs = PollPredictionStatement.objects.filter(poll__created_by__group_id=group_id
+    qs = PollPredictionStatement.objects.filter(poll__created_by__group_id=group_id,
+                                                active=True
                                                 ).annotate(score=score,
                                                            vote_yes=vote_yes,
                                                            vote_no=vote_no,
@@ -69,5 +73,69 @@ def poll_prediction_bet_list(*, fetched_by: User, group_id: int = None, filters=
     group_user_permissions(user=fetched_by, group=group_id)
 
     qs = PollPredictionBet.objects.filter(prediction_statement__created_by__group_id=group_id,
+                                          prediction_statement__active=True,
                                           created_by__user=fetched_by).all()
     return BasePollPredictionBetFilter(filters, qs).qs
+
+
+class BasePollProposalKPIBetFilter(django_filters.FilterSet):
+    poll_id = django_filters.NumberFilter(field_name='proposal_kpi__proposal__poll_id')
+    proposal_ids = NumberInFilter(field_name='proposal_kpi__proposal_id')
+    kpi_ids = NumberInFilter(field_name='proposal_kpi__kpi_value__kpi_id')
+    values = NumberInFilter(field_name='proposal_kpi__kpi_value__value')
+    value__lt = django_filters.NumberFilter(field_name='proposal_kpi__kpi_value__value', lookup_expr='lt')
+    value__gt = django_filters.NumberFilter(field_name='proposal_kpi__kpi_value__value', lookup_expr='gt')
+
+    class Meta:
+        model = PollProposalKPIBet
+        fields = dict(weight=['lt', 'gt'])
+
+
+def poll_proposal_kpi_bet_list(*, fetched_by: User, group_id: int, filters=None):
+    filters = filters or {}
+
+    group_user = group_user_permissions(user=fetched_by, group=group_id)
+    qs = PollProposalKPIBet.objects.filter(created_by=group_user).all()
+
+    return BasePollProposalKPIBetFilter(filters, qs).qs
+
+
+class BasePollProposalKPIVoteFilter(django_filters.FilterSet):
+    proposal_ids = NumberInFilter(field_name='proposal_kpi__proposal_id')
+    kpi_ids = NumberInFilter(field_name='proposal_kpi__kpi_value__kpi_id')
+    vote = django_filters.NumberFilter()
+
+
+def poll_proposal_kpi_vote_list(*, fetched_by: User, group_id: int, filters=None):
+    filters = filters or {}
+
+    group_user = group_user_permissions(user=fetched_by, group=group_id)
+    qs = PollProposalKPIVote.objects.filter(created_by=group_user).all()
+
+    return BasePollProposalKPIVoteFilter(filters, qs).qs
+
+
+class BasePollProposalKPIFilter(django_filters.FilterSet):
+    proposal_ids = NumberInFilter(field_name='proposal_id')
+
+
+def poll_proposal_kpi_list(*, fetched_by: User, group_id: int, filters=None):
+    filters = filters or {}
+
+    group_user_permissions(user=fetched_by, group=group_id)
+
+    pollproposalkpi_sq = PollProposalKPI.objects.filter(proposal=OuterRef('proposal'),
+                                                        kpi_value__kpi=OuterRef('kpi_value__kpi')
+                                                        ).annotate(sum_score=Count('pollproposalkpivote')
+                                                                   ).exclude(Q(sum_score__isnull=True)
+                                                                             | Q(sum_score__lte=0)
+                                                                             ).order_by('-sum_score').values('id')[:1]
+
+    qs = PollProposalKPI.objects.filter(proposal__poll__created_by__group_id=group_id
+                                        ).annotate(winner=pollproposalkpi_sq,
+                                                   outcome=Case(When(id=F('winner'), then=True),
+                                                                output_field=models.BooleanField(),
+                                                                default=False)
+                                                   ).all()
+
+    return BasePollProposalKPIFilter(filters, qs).qs

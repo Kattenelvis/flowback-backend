@@ -2,14 +2,15 @@ from rest_framework.exceptions import ValidationError, PermissionDenied
 
 from flowback.common.services import model_update
 from flowback.group.models import WorkGroup, WorkGroupUser, WorkGroupUserJoinRequest
-from flowback.group.selectors import group_user_permissions
+from flowback.group.selectors.permission import group_user_permissions
+from flowback.schedule.services import schedule_event_create, schedule_event_update, schedule_event_delete
+from flowback.user.models import User
 
 
 def work_group_create(*, user_id: int, group_id: int, name: str, direct_join: bool) -> WorkGroup:
     group_user = group_user_permissions(user=user_id, group=group_id, permissions=['admin'])
 
     work_group = WorkGroup(name=name, direct_join=direct_join, group=group_user.group)
-    work_group.full_clean()
     work_group.save()
 
     return work_group
@@ -41,7 +42,7 @@ def work_group_user_join(*, user_id: int, work_group_id: int) -> int | None:
 
     if work_group.direct_join:
         work_group_user = WorkGroupUser(group_user=group_user, work_group=work_group)
-        work_group_user.full_clean()
+        # TODO make full_clean work
         work_group_user.save()
         return work_group_user.id
 
@@ -87,7 +88,6 @@ def work_group_user_add(*, user_id: int,
                                             is_moderator=is_moderator
                                             if work_group_user_is_moderator or group_user.is_admin
                                             else False)
-            work_group_user.full_clean()
             work_group_user.save()
 
             return work_group_user
@@ -130,3 +130,54 @@ def work_group_user_update(*, user_id: int, work_group_id: int, target_group_use
                                          data=data)
 
     return instance
+
+
+def work_group_schedule_event_create(user: User, work_group_id: int, **data):
+    work_group = WorkGroup.objects.get(id=work_group_id)
+    data['schedule_id'] = work_group.schedule.id
+
+    group_user = group_user_permissions(user=user,
+                                        group=work_group.group,
+                                        work_group=work_group)
+
+    work_group_user = WorkGroupUser.objects.filter(group_user=group_user, work_group=work_group).first()
+
+    if group_user.is_admin or work_group_user and work_group_user.is_moderator:
+        return schedule_event_create(created_by=work_group.group.created_by, **data)
+
+    else:
+        raise PermissionDenied("Missing privileges")
+
+
+def work_group_schedule_event_update(user: User, work_group_id: int, **data):
+    work_group = WorkGroup.objects.get(id=work_group_id)
+    data['schedule_id'] = work_group.schedule.id
+
+    group_user = group_user_permissions(user=user,
+                                        group=work_group.group,
+                                        work_group=work_group)
+
+    work_group_user = WorkGroupUser.objects.filter(group_user=group_user, work_group=work_group).first()
+
+    if group_user.is_admin or work_group_user and work_group_user.is_moderator:
+        return schedule_event_update(**data)
+
+    else:
+        raise PermissionDenied("Missing privileges")
+
+
+def work_group_schedule_event_delete(user: User, work_group_id: int, **data):
+    work_group = WorkGroup.objects.get(id=work_group_id)
+    data['schedule_id'] = work_group.schedule.id
+
+    group_user = group_user_permissions(user=user,
+                                        group=work_group.group,
+                                        work_group=work_group)
+
+    work_group_user = WorkGroupUser.objects.filter(group_user=group_user, work_group=work_group).first()
+
+    if group_user.is_admin or work_group_user and work_group_user.is_moderator:
+        return schedule_event_delete(**data)
+
+    else:
+        raise PermissionDenied("Missing privileges")

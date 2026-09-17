@@ -1,13 +1,15 @@
+from rest_framework.exceptions import ValidationError
 from rest_framework import status
-from rest_framework.test import APITransactionTestCase, APIRequestFactory, force_authenticate
+from rest_framework.test import APIRequestFactory, force_authenticate, APITestCase
 
-from flowback.comment.models import Comment, CommentSection
-from flowback.comment.selectors import comment_list
+from flowback.comment.models import Comment
+from flowback.comment.services import comment_delete, comment_update
 from flowback.comment.tests.factories import CommentSectionFactory, CommentFactory, CommentVoteFactory
 from flowback.comment.views import CommentListAPI, CommentVoteAPI, CommentAncestorListAPI
+from flowback.user.tests.factories import UserFactory
 
 
-class CommentSectionTest(APITransactionTestCase):
+class CommentSectionTest(APITestCase):
     def setUp(self):
         self.comment_section = CommentSectionFactory()
 
@@ -72,6 +74,35 @@ class CommentSectionTest(APITransactionTestCase):
         self.assertEqual(len(response.data.get('results')), 3, 'Missing comments in tree')
         self.assertTrue(all([x.get('id') == expected_order[i] for i, x in enumerate(response.data.get('results'))]),
                         'Comments are not ordered by ancestors')
+
+
+    def test_comment_update(self):
+        user_one = UserFactory()
+        user_two = UserFactory()
+
+        comment = CommentFactory(comment_section=self.comment_section, author=user_one)
+
+        with self.assertRaises(ValidationError):
+            comment_update(fetched_by=user_two.id, comment_section_id=self.comment_section, comment_id=comment.id, data=dict(message="Hello"))
+
+        comment_update(fetched_by=user_one.id,
+                       comment_section_id=self.comment_section,
+                       comment_id=comment.id,
+                       data=dict(message="Hello there"))
+
+        self.assertEqual(Comment.objects.get(id=comment.id).message, "Hello there")
+
+
+    def test_comment_delete(self):
+        user_one = UserFactory()
+        user_two = UserFactory()
+
+        comment = CommentFactory(comment_section=self.comment_section, author=user_one)
+
+        with self.assertRaises(ValidationError):
+            comment_delete(fetched_by=user_two.id, comment_section_id=self.comment_section, comment_id=comment.id)
+
+        comment_delete(fetched_by=user_one.id, comment_section_id=self.comment_section, comment_id=comment.id)
 
 
     # Test if the algorithm prioritizes potentially higher score comments

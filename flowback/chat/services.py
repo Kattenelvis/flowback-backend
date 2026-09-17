@@ -1,17 +1,19 @@
-from django.shortcuts import get_object_or_404
-from django.utils.datetime_safe import datetime
 from rest_framework.exceptions import ValidationError
 
+from backend.settings import TESTING
 from flowback.chat.models import MessageChannel, Message, MessageChannelParticipant, MessageFileCollection, \
     MessageChannelTopic
+from asgiref.sync import async_to_sync
+from channels.layers import get_channel_layer
 from flowback.common.services import get_object, model_update
-from flowback.files.models import FileCollection
 from flowback.files.services import upload_collection
 from flowback.user.models import User
+from flowback.user.serializers import BasicUserSerializer
+from flowback.chat.serializers import MessageSerializer
 
 
 def user_message_channel_permission(*, user: User, channel: MessageChannel):
-    return get_object(MessageChannelParticipant, user=user, channel=channel,
+    return get_object(MessageChannelParticipant, user=user, channel=channel, active=True,
                       error_message="User is not participating in this channel")
 
 
@@ -72,7 +74,6 @@ def message_delete(*, user_id: int, message_id: int):
     if not user == message.user:
         raise ValidationError('User is not author of message')
 
-    message.message = ""
     message.active = False
     message.save()
 
@@ -82,7 +83,7 @@ def message_delete(*, user_id: int, message_id: int):
 def message_files_upload(*, user_id: int, channel_id: int, files: list) -> MessageFileCollection:
     user = get_object(User, id=user_id)
     channel = get_object(MessageChannel, id=channel_id)
-    get_object(MessageChannelParticipant, user=user, channel=channel)
+    get_object(MessageChannelParticipant, user=user, channel=channel, active=True)
     upload_to = f"{MessageFileCollection.attachments_upload_to}/{channel.origin_name}"
 
     file_collection = upload_collection(user_id=user_id, file=files,
@@ -99,7 +100,8 @@ def message_channel_userdata_update(*, user_id: int, channel_id: int, **data):
     user = get_object(User, id=user_id)
     channel = get_object(MessageChannel, id=channel_id)
 
-    participant = get_object(MessageChannelParticipant, user=user, channel=channel)
+    participant = get_object(MessageChannelParticipant, user=user, channel=channel, active=True)
+
     response = model_update(instance=participant,
                             fields=['timestamp', 'closed_at'],
                             data=data)
@@ -117,6 +119,7 @@ def message_channel_create(*, origin_name: str, title: str = None):
 
 def message_channel_delete(*, channel_id: int):
     channel = get_object(MessageChannel, id=channel_id)
+    MessageChannelParticipant.objects.filter(channel_id=channel_id).update(active=False)  # To avoid leave messages
     channel.delete()
 
 
@@ -152,3 +155,20 @@ def message_channel_topic_create(*, channel_id: int, topic_name: str, hidden: bo
 def message_channel_topic_delete(*, channel_id: int, topic_id: int):
     topic = get_object(MessageChannel, channel_id=channel_id, id=topic_id)
     topic.delete()
+
+
+def send_channel_info_message(participant: MessageChannelParticipant, message: str = None):
+    message = Message.objects.create(user=participant.user,
+                                     channel=participant.channel,
+                                     message=message,
+                                     type="info")
+
+    if not TESTING:
+        channel_layer = get_channel_layer()
+
+        # Broadcast the full serialized message (including id and user) so
+        # clients can render the info message live without a reload.
+        data = dict(MessageSerializer(message).data)
+        data["type"] = "info"
+
+        async_to_sync(channel_layer.group_send)(f"{participant.channel.id}", data)

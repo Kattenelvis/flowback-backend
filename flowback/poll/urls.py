@@ -1,13 +1,12 @@
 from django.urls import path
 
 from .views.poll import (PollListApi,
-                         PollNotificationSubscribeApi,
                          PollCreateAPI,
                          PollFastForwardAPI,
                          PollUpdateAPI,
                          PollDeleteAPI,
                          PollDelegatesListAPI, PollPhaseTemplateListAPI, PollPhaseTemplateCreateAPI,
-                         PollPhaseTemplateUpdateAPI, PollPhaseTemplateDeleteAPI)
+                         PollPhaseTemplateUpdateAPI, PollPhaseTemplateDeleteAPI, PollNotificationSubscribeAPI)
 from .views.proposal import PollProposalListAPI, PollProposalDeleteAPI, PollProposalCreateAPI
 from .views.vote import (PollProposalVoteListAPI,
                          PollProposalVoteUpdateAPI,
@@ -19,12 +18,16 @@ from .views.prediction import (PollPredictionStatementListAPI,
                                PollPredictionBetListAPI,
                                PollPredictionStatementCreateAPI,
                                PollPredictionStatementDeleteAPI,
-                               PollPredictionBetCreateAPI,
                                PollPredictionBetUpdateAPI,
                                PollPredictionBetDeleteAPI,
                                PollPredictionStatementVoteCreateAPI,
                                PollPredictionStatementVoteUpdateAPI,
-                               PollPredictionStatementVoteDeleteAPI)
+                               PollPredictionStatementVoteDeleteAPI,
+                               PollProposalKPIBetAPI,
+                               PollProposalKPIListAPI,
+                               PollProposalKPIVoteAPI,
+                               PollProposalKPIBetListAPI,
+                               PollProposalKPIVoteListAPI)
 from .views.area import PollAreaStatementListAPI, PollAreaVoteAPI
 
 group_poll_patterns = [
@@ -34,14 +37,17 @@ group_poll_patterns = [
     path('template/create', PollPhaseTemplateCreateAPI.as_view(), name='poll_phase_template_create'),
     path('prediction/statement/list', PollPredictionStatementListAPI.as_view(), name='poll_prediction_statement_list'),
     path('prediction/bet/list', PollPredictionBetListAPI.as_view(), name='poll_prediction_bet_list'),
+    path('proposal/kpi/bet/list', PollProposalKPIBetListAPI.as_view(), name='poll_proposal_kpi_bet_list'),
+    path('proposal/kpi/vote/list', PollProposalKPIVoteListAPI.as_view(), name='poll_proposal_kpi_vote_list'),
+    path('proposal/kpi/list', PollProposalKPIListAPI.as_view(), name='poll_proposal_kpi_list'),
 ]
 
 poll_patterns = [
-    path('pool/<int:delegate_pool_id>/votes', DelegatePollVoteListAPI.as_view(), name='delegate_votes'),
-    path('<int:poll>/subscribe', PollNotificationSubscribeApi.as_view(), name='poll_subscribe'),
+    path('pool/votes', DelegatePollVoteListAPI.as_view(), name='delegate_votes'),
     path('<int:poll>/update', PollUpdateAPI.as_view(), name='poll_update'),
     path('<int:poll_id>/fast_forward', PollFastForwardAPI.as_view(), name='poll_fast_forward'),
     path('<int:poll>/delete', PollDeleteAPI.as_view(), name='poll_delete'),
+    path('<int:poll_id>/subscribe', PollNotificationSubscribeAPI.as_view(), name='poll_subscribe'),
 
     path('<int:poll>/proposals', PollProposalListAPI.as_view(), name='poll_proposals'),
     path('<int:poll>/proposal/create', PollProposalCreateAPI.as_view(), name='poll_proposal_create'),
@@ -67,8 +73,6 @@ poll_patterns = [
     path('prediction/<int:prediction_statement_id>/statement/delete', PollPredictionStatementDeleteAPI.as_view(),
          name='poll_prediction_statement_delete'),
 
-    path('prediction/<int:prediction_statement_id>/bet/create', PollPredictionBetCreateAPI.as_view(),
-         name='poll_prediction_bet_create'),
     path('prediction/<int:prediction_statement_id>/bet/update', PollPredictionBetUpdateAPI.as_view(),
          name='poll_prediction_bet_update'),
     path('prediction/<int:prediction_statement_id>/bet/delete', PollPredictionBetDeleteAPI.as_view(),
@@ -83,6 +87,9 @@ poll_patterns = [
     path('prediction/<int:prediction_statement_id>/statement/vote/delete',
          PollPredictionStatementVoteDeleteAPI.as_view(),
          name='poll_prediction_statement_vote_delete'),
+
+    path('proposal/<int:proposal_id>/kpi/bet', PollProposalKPIBetAPI.as_view(), name='poll_proposal_kpi_bet'),
+    path('proposal/<int:proposal_id>/kpi/vote', PollProposalKPIVoteAPI.as_view(), name='poll_proposal_kpi_vote'),
 
     path('template/<int:template_id>/update', PollPhaseTemplateUpdateAPI.as_view(), name='poll_phase_template_update'),
     path('template/<int:template_id>/delete', PollPhaseTemplateDeleteAPI.as_view(), name='poll_phase_template_delete'),

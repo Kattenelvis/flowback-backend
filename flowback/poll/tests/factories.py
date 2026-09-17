@@ -1,25 +1,30 @@
+import random
+
 import factory
 from django.utils import timezone
-from flowback.common.tests import fake
-from flowback.group.tests.factories import GroupUserFactory, GroupUserDelegatePoolFactory, GroupTagsFactory
+from future.backports.datetime import timedelta
 
-from flowback.poll.models import (Poll,
-                                  PollProposal,
-                                  PollProposalTypeSchedule,
-                                  PollVoting,
+from flowback.common.tests import fake
+from flowback.group.tests.factories import GroupUserFactory, GroupUserDelegatePoolFactory, GroupTagsFactory, \
+    GroupKPIFactory, GroupKPIValueFactory
+
+from flowback.poll.models import Poll
+from flowback.poll.phases import (PollAreaStatement,
+                                  PollAreaStatementSegment,
+                                  PollAreaStatementVote,
                                   PollDelegateVoting,
-                                  PollVotingTypeRanking,
-                                  PollVotingTypeCardinal,
-                                  PollVotingTypeForAgainst,
                                   PollPredictionBet,
                                   PollPredictionStatement,
                                   PollPredictionStatementSegment,
                                   PollPredictionStatementVote,
-                                  PollAreaStatement,
-                                  PollAreaStatementSegment,
-                                  PollAreaStatementVote)
+                                  PollProposal,
+                                  PollProposalKPI,
+                                  PollProposalKPIBet,
+                                  PollProposalKPIVote,
+                                  PollProposalTypeSchedule,
+                                  PollVoting,
+                                  PollVotingTypeCardinal)
 from flowback.poll.tests.utils import generate_poll_phase_kwargs
-from flowback.schedule.tests.factories import ScheduleEventFactory
 
 
 class PollFactory(factory.django.DjangoModelFactory):
@@ -29,8 +34,8 @@ class PollFactory(factory.django.DjangoModelFactory):
     created_by = factory.SubFactory(GroupUserFactory)
     title = factory.LazyAttribute(lambda _: fake.unique.first_name().lower())
     description = factory.LazyAttribute(lambda _: fake.bs())
-    poll_type = factory.LazyAttribute(lambda _: fake.pyint(min_value=1, max_value=4))
-    dynamic = factory.LazyAttribute(lambda o: True if o.poll_type == 3 else fake.pybool())
+    poll_type = Poll.PollType.SCORE
+    dynamic = False
 
     start_date = factory.LazyAttribute(lambda _: timezone.now())
     area_vote_end_date = factory.LazyAttribute(lambda _: timezone.now() + timezone.timedelta(hours=1))
@@ -64,11 +69,9 @@ class PollProposalTypeScheduleFactory(factory.django.DjangoModelFactory):
     class Meta:
         model = PollProposalTypeSchedule
 
-    proposal = factory.SubFactory(PollProposalFactory, poll__poll_type=3)
-    event = factory.SubFactory(ScheduleEventFactory,
-                               schedule=factory.SelfAttribute('..proposal.poll.polltypeschedule.schedule'),
-                               origin_id=factory.SelfAttribute('..proposal.id'),
-                               origin_name=factory.SelfAttribute('..proposal.schedule_origin'))
+    event_start_date = factory.LazyAttribute(lambda _: timezone.now() + timedelta(days=1))
+    event_end_date = factory.LazyAttribute(lambda _: timezone.now() + timedelta(days=2))
+    proposal = factory.SubFactory(PollProposalFactory, poll__poll_type=Poll.PollType.SCHEDULE)
 
 
 class PollVotingFactory(factory.django.DjangoModelFactory):
@@ -87,13 +90,6 @@ class PollDelegateVotingFactory(factory.django.DjangoModelFactory):
     poll = factory.SubFactory(PollFactory)
 
 
-class PollVotingTypeRankingFactory(factory.django.DjangoModelFactory):
-    class Meta:
-        model = PollVotingTypeRanking
-
-    proposal = factory.SubFactory(PollProposalFactory)
-
-
 class PollVotingTypeCardinalFactory(factory.django.DjangoModelFactory):
     class Meta:
         model = PollVotingTypeCardinal
@@ -102,18 +98,11 @@ class PollVotingTypeCardinalFactory(factory.django.DjangoModelFactory):
     score = factory.LazyAttribute(lambda _: fake.pyint())
 
 
-class PollVotingTypeForAgainstFactory(factory.django.DjangoModelFactory):
-    class Meta:
-        model = PollVotingTypeForAgainst
-
-    proposal = factory.SubFactory(PollProposalFactory)
-
-
 class PollPredictionStatementFactory(factory.django.DjangoModelFactory):
     class Meta:
         model = PollPredictionStatement
 
-    created_by = factory.SubFactory(GroupUserFactory)
+    created_by = factory.SubFactory(GroupUserFactory, group=factory.SelfAttribute('..poll.created_by.group'))
     poll = factory.SubFactory(PollFactory, **generate_poll_phase_kwargs('proposal'))
     title = factory.LazyAttribute(lambda _: fake.name())
     description = factory.LazyAttribute(lambda _: fake.bs())
@@ -145,6 +134,31 @@ class PollPredictionStatementVoteFactory(factory.django.DjangoModelFactory):
     prediction_statement = factory.SubFactory(PollPredictionStatementFactory)
     created_by = factory.SubFactory(GroupUserFactory)
     vote = factory.LazyAttribute(lambda _: fake.pybool())
+
+
+class PollProposalKPIFactory(factory.django.DjangoModelFactory):
+    class Meta:
+        model = PollProposalKPI
+
+    proposal = factory.SubFactory(PollProposalFactory)
+    kpi_value = factory.SubFactory(GroupKPIValueFactory)
+
+
+class PollProposalKPIBetFactory(factory.django.DjangoModelFactory):
+    class Meta:
+        model = PollProposalKPIBet
+
+    created_by = factory.SubFactory(GroupUserFactory)
+    proposal_kpi = factory.SubFactory(PollProposalKPIFactory)
+    weight = factory.LazyAttribute(lambda _: random.randint(1, 999999))
+
+
+class PollProposalKPIVoteFactory(factory.django.DjangoModelFactory):
+    class Meta:
+        model = PollProposalKPIVote
+
+    created_by = factory.SubFactory(GroupUserFactory)
+    proposal_kpi = factory.SubFactory(PollProposalKPIFactory)
 
 
 class PollAreaStatementFactory(factory.django.DjangoModelFactory):

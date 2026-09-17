@@ -11,13 +11,86 @@ It is a decision-making platform.
 ### Docker Compose
 To run Flowback backend using Docker Compose, follow these instructions: 
 1) [Download](https://github.com/Gofven/flowback/archive/refs/heads/master.zip) or [Clone](https://docs.github.com/en/repositories/creating-and-managing-repositories/cloning-a-repository) this repository to your local computer
-2) Download [Docker Compose](https://docs.docker.com/compose/install/linux/) (Linux) or [Docker Desktop](https://www.docker.com/products/docker-desktop/) (Windows)
-3) Using your computers terminal, navigate to the local repository using `cd <directory>`
+2) Download [Docker Desktop](https://www.docker.com/products/docker-desktop/) (Windows, macOS and Linux) or [Docker Compose](https://docs.docker.com/compose/install/linux/) (Linux)
+3) Navigate to the root of this repository.
 4) Run `docker compose up -d`
+5) Flowback backend should now be accessible (by default on http://localhost:8000)
 
-When docker compose is running, it'll create .env file in the repository folder if it doesn't exist, 
+#### Documentation
+You can find the api documenation at http://127.0.0.1:8000/schema/redoc/ once you have started the backend with docker.
+
+#### Create admin account
+To create an admin account that can be used in the frontend you will need to execute a command inside the backend docker container. By default, the container name is `<flowback_root_folder_name>-flowback-backend-1`.
+
+You can enter the container through the docker desktop app, click on the container and then click on the terminal tab. There you can create an admin account by executing: 
+```python
+python manage.py createsuperuser
+```
+
+Alternatively, you can access the docker container by running the following command:
+```
+docker exec -ti <container_name> bash
+```
+
+And once you're inside the container, create an admin account using:
+```python
+python manage.py createsuperuser
+```
+
+#### About .env
+When docker compose is running, it'll create .env file in the repository folder if it doesn't exist,
 or append `DJANGO_SECRET` to the file if .env exists and the variable isn't present in it. 
 If you wish to change the environment variables, use .env.example as reference!
+
+### Caddy DNS Setup Example
+
+After installing flowback, if you wish to configure Caddy as a reverse proxy for running Flowback on port 8000,
+follow these steps:
+
+1) Install Caddy by following the instructions from the [official Caddy website](https://caddyserver.com/docs/install).
+2) Create a `Caddyfile` in the directory where you want to manage your Caddy server or use the default configuration
+   directory (commonly `/etc/caddy` on Linux) with the following content:
+
+    ```plaintext
+    example.com {
+        reverse_proxy :8000
+        reverse_proxy /admin* :8000
+        reverse_proxy /openid* :8000
+        route /media* {
+                uri strip_prefix /media
+                root * /path/to/flowback_root/media
+                file_server
+        }
+        route /static* {
+                uri strip_prefix /static
+                root * /path/to/flowback_root/static
+                file_server 
+        }
+    }
+   
+    ```
+
+   Replace `example.com` with your domain where you wish to host Flowback. If you're not using a
+   custom domain, you can use localhost for local testing.
+
+3) If you're using DNS for your domain, update your DNS records:
+    - Add an **A record** pointing your domain (`example.com`) to your server's IP address.
+
+4) Reload the Caddy service:
+      ```bash
+      sudo caddy reload --config /etc/caddy/Caddyfile
+      ```
+
+5) Ensure port 80 (HTTP) and port 443 (HTTPS) are open in your firewall and that your server allows incoming traffic on
+   these ports.
+   
+6) Be sure to include your domain in the `ALLOWED_HOSTS` variable in your env, e.g. `ALLOWED_HOSTS="example.com"`
+
+7) Access Flowback backend at your domain URL using HTTPS (e.g., `https://example.com`). Caddy automatically provisions
+   an SSL certificate via Let's Encrypt.
+
+For further customization, refer to the [Caddy documentation](https://caddyserver.com/docs/caddyfile).
+
 
 ## Content
 

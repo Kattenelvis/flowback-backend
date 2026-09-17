@@ -1,6 +1,6 @@
 from django.contrib import admin
 from .models import Group, GroupPermissions, GroupTags, GroupUser, GroupUserInvite, GroupUserDelegatePool, \
-    GroupUserDelegate, GroupUserDelegator, GroupFolder
+    GroupUserDelegate, GroupUserDelegator, GroupFolder, GroupThread, GroupKPI, GroupKPIValue
 
 
 @admin.register(GroupFolder)
@@ -22,6 +22,7 @@ class GroupAdmin(admin.ModelAdmin):
 class GroupPermissionsAdmin(admin.ModelAdmin):
     list_display = ('id',
                     'role_name',
+                    'author',
                     'invite_user',
                     'create_poll',
                     'poll_fast_forward',
@@ -80,3 +81,32 @@ class GroupUserDelegateAdmin(admin.ModelAdmin):
 @admin.register(GroupUserDelegator)
 class GroupUserDelegatorAdmin(admin.ModelAdmin):
     list_display = ('delegator', 'delegate_pool', 'group')
+
+
+@admin.register(GroupThread)
+class GroupThreadAdmin(admin.ModelAdmin):
+    list_display = ('title', 'created_by', 'pinned', 'active', 'work_group')  # Fields visible in the list view
+    list_filter = ('pinned', 'active', 'work_group')  # Filters for easy navigation
+    search_fields = ('title', 'description', 'created_by__user__username')  # Search functionality
+    ordering = ('-id',)  # Default ordering
+    fieldsets = (
+        (None, {
+            'fields': ('title', 'description', 'created_by', 'work_group', 'attachments')
+        }),
+        ('Additional Information', {
+            'fields': ('pinned', 'active', 'comment_section'),
+        }),
+    )
+
+
+@admin.register(GroupKPI)
+class GroupKPIAdmin(admin.ModelAdmin):
+    list_display = ('name', 'group', 'active')
+    list_filter = ('active', 'group')
+    search_fields = ('name', 'description')
+
+
+@admin.register(GroupKPIValue)
+class GroupKPIValueAdmin(admin.ModelAdmin):
+    list_display = ('kpi', 'value')
+    list_filter = ('kpi',)

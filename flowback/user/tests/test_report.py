@@ -1,5 +1,5 @@
 from rest_framework import status
-from rest_framework.test import APITransactionTestCase
+from rest_framework.test import APITestCase
 
 from flowback.common.tests import generate_request
 from flowback.user.models import Report
@@ -7,9 +7,7 @@ from flowback.user.tests.factories import UserFactory, ReportFactory
 from flowback.user.views.report import ReportCreateAPI
 
 
-class UserTest(APITransactionTestCase):
-    reset_sequences = True
-
+class UserTest(APITestCase):
     def setUp(self):
         self.users = [UserFactory() for x in range(3)]
         self.reports = [ReportFactory() for x in range(3)]

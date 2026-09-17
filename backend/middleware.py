@@ -1,15 +1,16 @@
 from django.contrib.auth.models import AnonymousUser
-from rest_framework.authtoken.models import Token
+from knox.auth import TokenAuthentication
 from channels.db import database_sync_to_async
 from channels.middleware import BaseMiddleware
+from rest_framework.exceptions import AuthenticationFailed
 
 
 @database_sync_to_async
-def get_user(token_key):
+def get_user(token):
     try:
-        token = Token.objects.get(key=token_key)
-        return token.user
-    except Token.DoesNotExist:
+        user, token = TokenAuthentication().authenticate_credentials(token=bytes(token, 'utf-8'))
+        return user
+    except AuthenticationFailed:
         return AnonymousUser()
 
 

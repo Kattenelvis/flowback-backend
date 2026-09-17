@@ -10,10 +10,11 @@ class _MessageSerializerTemplate(serializers.Serializer):
     created_at = serializers.DateTimeField()
     updated_at = serializers.DateTimeField()
     channel_id = serializers.IntegerField()
-    channel_origin_name = serializers.CharField(source="channel.origin_name")
     channel_title = serializers.CharField(source="channel.title")
+    channel_origin_name = serializers.CharField(source="channel.origin_name")
     topic_id = serializers.IntegerField(required=False)
     topic_name = serializers.CharField(required=False, source='topic.name')
+    type = serializers.CharField(read_only=True)
     message = serializers.CharField()
     attachments = FileSerializer(many=True, source='attachments.file_collection.filesegment_set', allow_null=True)
 

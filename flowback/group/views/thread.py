@@ -7,18 +7,19 @@ from flowback.common.pagination import LimitOffsetPagination, get_paginated_resp
 from flowback.comment.views import CommentListAPI, CommentCreateAPI, CommentUpdateAPI, CommentDeleteAPI, CommentVoteAPI, \
     CommentAncestorListAPI
 from flowback.files.serializers import FileSerializer
-from flowback.group.selectors import group_thread_list, group_thread_comment_list, group_thread_comment_ancestor_list
+from flowback.group.selectors.thread import group_thread_list, group_thread_comment_list, \
+    group_thread_comment_ancestor_list
+from flowback.group.serializers import WorkGroupSerializer, GroupUserSerializer
+from flowback.notification.views import NotificationSubscribeTemplateAPI
 from flowback.group.services.thread import (group_thread_create,
                                             group_thread_update,
                                             group_thread_delete,
                                             group_thread_comment_create,
                                             group_thread_comment_update,
                                             group_thread_comment_delete,
-                                            group_thread_notification_subscribe,
-                                            group_thread_notification,
                                             group_thread_comment_vote,
-                                            group_thread_vote_update)
-from flowback.user.serializers import BasicUserSerializer
+                                            group_thread_vote_update,
+                                            group_thread_notification_subscribe)
 
 
 @extend_schema(tags=['group/thread'])
@@ -33,10 +34,13 @@ class GroupThreadListAPI(APIView):
         title = serializers.CharField(required=False)
         title__icontains = serializers.CharField(required=False)
         description = serializers.CharField(required=False)
+        group_ids = serializers.CharField(required=False)
         user_vote = serializers.BooleanField(required=False, allow_null=True, default=None)
+        work_group_ids = serializers.CharField(required=False)
 
     class OutputSerializer(serializers.Serializer):
-        created_by = BasicUserSerializer(source='created_by.user')
+        created_by = GroupUserSerializer(hide_relevant_users=True)
+        created_at = serializers.DateTimeField()
         id = serializers.IntegerField()
         title = serializers.CharField()
         description = serializers.CharField(allow_null=True, default=None)
@@ -45,12 +49,19 @@ class GroupThreadListAPI(APIView):
         attachments = FileSerializer(many=True, source='attachments.filesegment_set', allow_null=True)
         score = serializers.IntegerField(default=0)
         user_vote = serializers.BooleanField(allow_null=True)
+        work_group = WorkGroupSerializer()
+        public = serializers.BooleanField()
 
-    def get(self, request, group_id: int):
+        group_joined = serializers.BooleanField()
+        group_id = serializers.IntegerField(source='created_by.group_id')
+        group_name = serializers.CharField(source='created_by.group.name')
+        group_image = serializers.ImageField(source='created_by.group.image')
+
+    def get(self, request):
         serializer = self.FilterSerializer(data=request.query_params)
         serializer.is_valid(raise_exception=True)
 
-        threads = group_thread_list(group_id=group_id, fetched_by=request.user, filters=serializer.validated_data)
+        threads = group_thread_list(fetched_by=request.user, filters=serializer.validated_data)
         return get_paginated_response(pagination_class=self.Pagination,
                                       serializer_class=self.OutputSerializer,
                                       queryset=threads,
@@ -65,6 +76,8 @@ class GroupThreadCreateAPI(APIView):
         description = serializers.CharField(required=False)
         pinned = serializers.BooleanField(default=False)
         attachments = serializers.ListField(child=serializers.FileField(), required=False, max_length=10)
+        work_group_id = serializers.IntegerField(required=False)
+        public = serializers.BooleanField(default=False)
 
     def post(self, request, group_id: int):
         serializer = self.InputSerializer(data=request.data)
@@ -95,18 +108,6 @@ class GroupThreadDeleteAPI(APIView):
     def post(self, request, thread_id: int):
         group_thread_delete(user_id=request.user, thread_id=thread_id)
 
-        return Response(status=status.HTTP_200_OK)
-
-
-@extend_schema(tags=['group/thread'])
-class GroupThreadNotificationSubscribeAPI(APIView):
-    class InputSerializer(serializers.Serializer):
-        categories = serializers.MultipleChoiceField(choices=group_thread_notification.possible_categories)
-
-    def post(self, request, thread_id: int):
-        serializer = self.InputSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        group_thread_notification_subscribe(user_id=request.user.id, thread_id=thread_id, **serializer.validated_data)
         return Response(status=status.HTTP_200_OK)
 
 
@@ -154,3 +155,8 @@ class GroupThreadCommentDeleteAPI(CommentDeleteAPI):
 @extend_schema(tags=['group/thread'])
 class GroupThreadCommentVoteAPI(CommentVoteAPI):
     lazy_action = group_thread_comment_vote
+
+
+@extend_schema(tags=['group/thread'])
+class GroupThreadNotificationSubscribeAPI(NotificationSubscribeTemplateAPI):
+    lazy_action = group_thread_notification_subscribe

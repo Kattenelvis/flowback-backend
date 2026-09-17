@@ -7,7 +7,8 @@ from rest_framework.views import APIView
 from flowback.comment.selectors import comment_list, comment_ancestor_list
 from flowback.comment.services import comment_create, comment_update, comment_delete, comment_vote
 from flowback.common.pagination import LimitOffsetPagination, get_paginated_response
-from flowback.files.serializers import FileSerializer
+from flowback.files.serializers import FileSerializer, FileCollectionCreateSerializerMixin, \
+    FileCollectionUpdateSerializerMixin, FileCollectionListSerializerMixin
 
 
 class CommentListAPI(APIView):
@@ -33,7 +34,7 @@ class CommentListAPI(APIView):
         score__gt = serializers.IntegerField(required=False)
         score__lt = serializers.IntegerField(required=False)
 
-    class OutputSerializer(serializers.Serializer):
+    class OutputSerializer(FileCollectionListSerializerMixin, serializers.Serializer):
         id = serializers.IntegerField()
         author_id = serializers.IntegerField()
         author_name = serializers.CharField(source='author.username')
@@ -44,7 +45,6 @@ class CommentListAPI(APIView):
         active = serializers.BooleanField()
         message = serializers.CharField(allow_null=True)
         user_vote = serializers.BooleanField(allow_null=True)
-        attachments = FileSerializer(source="attachments.filesegment_set", many=True, allow_null=True)
         score = serializers.IntegerField(source='raw_score')
 
     def get(self, request, *args, **kwargs):
@@ -86,10 +86,9 @@ class CommentAncestorListAPI(APIView):
 class CommentCreateAPI(APIView):
     lazy_action = comment_create
 
-    class InputSerializer(serializers.Serializer):
+    class InputSerializer(FileCollectionCreateSerializerMixin, serializers.Serializer):
         parent_id = serializers.IntegerField(required=False)
         message = serializers.CharField(required=False)
-        attachments = serializers.ListField(child=serializers.FileField(), required=False, max_length=10)
 
     def post(self, request, *args, **kwargs):
         serializer = self.InputSerializer(data=request.data)
@@ -99,14 +98,14 @@ class CommentCreateAPI(APIView):
                                             **kwargs,
                                             **serializer.validated_data)
 
-        return Response(status=status.HTTP_200_OK, data=comment.id)
+        return Response(status=status.HTTP_201_CREATED, data=comment.id)
 
 
 class CommentUpdateAPI(APIView):
     lazy_action = comment_update
 
-    class InputSerializer(serializers.Serializer):
-        message = serializers.CharField()
+    class InputSerializer(FileCollectionUpdateSerializerMixin, serializers.Serializer):
+        message = serializers.CharField(required=False)
 
     def post(self, request, *args, **kwargs):
         serializer = self.InputSerializer(data=request.data)
@@ -126,7 +125,7 @@ class CommentDeleteAPI(APIView):
     def post(self, request, *args, **kwargs):
         self.lazy_action.__func__(*args,
                                   **kwargs,
-                                  fetched_by=request.user)
+                                  fetched_by=request.user.id)
 
         return Response(status=status.HTTP_200_OK)
 
@@ -142,8 +141,8 @@ class CommentVoteAPI(APIView):
         serializer.is_valid(raise_exception=True)
 
         self.lazy_action.__func__(*args,
-                                  **kwargs,
-                                  **serializer.validated_data,
-                                  fetched_by=request.user.id)
+                                 **kwargs,
+                                 **serializer.validated_data,
+                                 fetched_by=request.user.id)
 
         return Response(status=status.HTTP_200_OK)

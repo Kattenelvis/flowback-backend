@@ -1,0 +1,222 @@
+name: Pipeline
+
+on:
+  push:
+    branches: [master, development]
+  pull_request:
+    branches: [master, development]
+
+env:
+  LINK: http://localhost:8085
+  TEST_PASS: TestPassword
+  PUBLIC_POLL_VERSION: 2
+
+jobs:
+  backend-tests:
+    permissions:
+      contents: read
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: flowback_test
+          POSTGRES_USER: flowback
+          POSTGRES_PASSWORD: flowback
+        ports:
+          - 5432:5432
+      redis:
+        image: redis:7
+        ports:
+          - 6379:6379
+    env:
+      FLOWBACK_PSQL_NAME: flowback_test
+      FLOWBACK_PSQL_USER: flowback
+      FLOWBACK_PSQL_PASSWORD: flowback
+      FLOWBACK_PSQL_HOST: localhost
+      FLOWBACK_PSQL_PORT: "5432"
+    steps:
+      - uses: actions/checkout@v5
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: 3.13
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install --no-cache-dir -r requirements.txt
+
+      - name: Start Celery worker and beat
+        run: |
+          celery -A backend worker --loglevel=info &
+          celery -A backend beat --loglevel=info &
+
+      - name: Run tests
+        run: pytest --disable-warnings
+
+  build:
+    needs: backend-tests
+    permissions:
+      contents: read
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/build-push-action@v6
+        with:
+          outputs: type=docker,dest=/tmp/flowback-backend.tar
+          tags: ${{ secrets.DOCKERHUB_USERNAME || github.repository_owner }}/flowback-backend:latest
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: flowback-backend-image
+          path: /tmp/flowback-backend.tar
+          retention-days: 1
+
+  frontend-tests:
+    needs: build
+    permissions:
+      contents: read
+    timeout-minutes: 30
+    runs-on: ubuntu-latest
+    env:
+      LINK: http://localhost:8085
+      TEST_PASS: TestPassword
+    steps:
+      - name: Checkout flowback-docker
+        uses: actions/checkout@v4
+        with:
+          repository: Kattenelvis/flowback-docker
+          path: flowback-docker
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: flowback-backend-image
+
+      - name: Load backend image
+        run: docker load --input flowback-backend.tar
+
+      - name: Tag backend image for Compose services
+        run: |
+          docker tag "${{ secrets.DOCKERHUB_USERNAME || github.repository_owner }}/flowback-backend:latest" flowback-docker-flowback-backend:latest
+          docker tag "${{ secrets.DOCKERHUB_USERNAME || github.repository_owner }}/flowback-backend:latest" flowback-docker-flowback-celery-worker:latest
+          docker tag "${{ secrets.DOCKERHUB_USERNAME || github.repository_owner }}/flowback-backend:latest" flowback-docker-flowback-celery-beat:latest
+
+      - name: Checkout frontend
+        uses: actions/checkout@v4
+        with:
+          repository: Kattenelvis/flowback-frontend
+          path: flowback-frontend
+
+          ref: ${{ (github.ref == 'refs/heads/development' || github.base_ref == 'development') && 'dev' || 'master' }}
+      - name: Build images
+        working-directory: flowback-docker
+        run: docker compose build flowback-frontend caddy
+
+      - name: Start Flowback stack
+        working-directory: flowback-docker
+        run: docker compose up -d --no-build --pull missing
+      
+      - uses: actions/checkout@v4
+        with:
+          repository: Kattenelvis/flowback-interface-testing
+          path: flowback-interface-testing
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install dependencies
+        working-directory: flowback-interface-testing
+        run: npm ci
+
+      - name: Install Playwright Browsers
+        working-directory: flowback-interface-testing
+        run: npx playwright install --with-deps chromium
+
+      - name: Verify interface test configuration
+        working-directory: flowback-interface-testing
+        run: test -n "$TEST_PASS"
+
+      - name: Run Smoke tests (basic login functionality)
+        working-directory: flowback-interface-testing
+        run: npx playwright test -g "Smoke-Test" --project chromium --retries 1
+          --workers 1
+
+      - name: Run the rest of the tests
+        working-directory: flowback-interface-testing
+        run: npx playwright test . --project chromium --retries 2 --workers 1 --reporter list
+          --grep-invert "Smoke-Test"
+
+      - name: Dump docker logs on failure
+        if: ${{ failure() }}
+        working-directory: flowback-docker
+        run: docker compose logs
+
+      - uses: actions/upload-artifact@v4
+        if: ${{ !cancelled() }}
+        with:
+          name: playwright-report
+          path: flowback-interface-testing/playwright-report/
+          retention-days: 30
+
+  docker-publish:
+    needs: frontend-tests
+    permissions: {}
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push'
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: flowback-backend-image
+
+      - name: Load backend image
+        run: docker load --input flowback-backend.tar
+
+      - uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Publish backend image
+        run: docker push ${{ secrets.DOCKERHUB_USERNAME }}/flowback-backend:latest
+
+  publish-dev:
+    needs: docker-publish
+    permissions: {}
+    timeout-minutes: 10
+    runs-on: ubuntu-latest
+    steps:
+      - name: Execute remote SSH commands using password
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.HOST }}
+          username: ${{ secrets.USERNAME }}
+          key: ${{ secrets.KEY }}
+          port: 22
+          script: |
+            cd flowback/flowback-docker-testing
+            docker compose pull && docker compose up -d
+
+  # Production publishes only from development or master pushes.
+  publish-prod:
+    needs: publish-dev
+    permissions: {}
+    if: ${{ github.event_name == 'push' && (github.ref == 'refs/heads/development' || github.ref == 'refs/heads/master') }}
+    timeout-minutes: 10
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: Execute remote SSH commands using password
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.HOST }}
+          username: ${{ secrets.USERNAME }}
+          key: ${{ secrets.KEY }}
+          port: 22
+          script: |
+            cd flowback/flowback-docker-prod
+            docker compose pull && docker compose up -d

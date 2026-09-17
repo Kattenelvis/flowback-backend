@@ -1,8 +1,10 @@
-from django.shortcuts import render
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework import serializers, status
 from rest_framework.views import APIView
+
+from flowback.common.pagination import get_paginated_response, LimitOffsetPagination
+from flowback.server.selectors import reports_list
 from flowback.server.services import get_public_config
 
 
@@ -12,6 +14,8 @@ class ServerConfigListAPI(APIView):
 
     class OutputSerializer(serializers.Serializer):
         DEBUG = serializers.BooleanField(help_text="Backend debug mode")
+        DEBUG_REGISTER_BYPASS_EMAIL_VERIFICATION = serializers.BooleanField(
+            help_text="Requires DEBUG to be enabled, sends verification_code along with UserCreateAPI")
         FLOWBACK_KANBAN_LANES = serializers.ListField(
             child=serializers.CharField(),
             help_text="List of kanban lanes, when using the kanban list APIs, the kanban lanes represent the position "
@@ -24,8 +28,31 @@ class ServerConfigListAPI(APIView):
                                                             help_text="Default groups id's that users join")
         FLOWBACK_DISABLE_DEFAULT_USER_REGISTRATION = serializers.BooleanField(
             help_text="If users can register or not")
+        FLOWBACK_POLL_VERSION_LOCK = serializers.IntegerField(help_text="Only allows poll creation with set version")
+        FLOWBACK_KPI_MAX_WEIGHT = serializers.IntegerField(help_text="sets a limit to how much weight "
+                                                                     "KPI bets can have per point")
+        VERSION = serializers.CharField(help_text="Flowback version, updated manually")
         GIT_HASH = serializers.CharField(help_text="The latest commit hash associated with this repository")
 
     def get(self, request):
         serializer = self.OutputSerializer(get_public_config())
         return Response(status=status.HTTP_200_OK, data=serializer.data)
+
+
+class ServerReportListAPI(APIView):
+    class OutputSerializer(serializers.Serializer):
+        title = serializers.CharField()
+        description = serializers.CharField()
+        group_id = serializers.IntegerField()
+        post_id = serializers.IntegerField()
+        post_type = serializers.CharField()
+        admin_action = serializers.ChoiceField(choices=['nothing', 'deleted'])
+
+    def get(self, request):
+        reports = reports_list(fetched_by=request.user)
+
+        return get_paginated_response(pagination_class=LimitOffsetPagination,
+                                      serializer_class=self.OutputSerializer,
+                                      queryset=reports,
+                                      request=request,
+                                      view=self)

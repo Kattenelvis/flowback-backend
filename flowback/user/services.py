@@ -1,63 +1,64 @@
 import logging
-import operator
 import uuid
-from functools import reduce
 
+from django.contrib.contenttypes.models import ContentType
 from django.core.mail import send_mail
-from django.db.models import Q, Count
+from django.db.models import Q, Count, Model
 from django.shortcuts import get_object_or_404
 from django.contrib.auth.password_validation import validate_password
 from django.utils import timezone
 
 from rest_framework.exceptions import ValidationError
 
-from backend.settings import DEFAULT_FROM_EMAIL, FLOWBACK_URL, EMAIL_HOST
-from flowback.chat.models import MessageChannel
-from flowback.chat.services import message_channel_create, message_channel_join
+from backend.settings import DEFAULT_FROM_EMAIL, URL_USER_CREATE, URL_USER_FORGOT_PASSWORD, EMAIL_HOST
+from flowback.chat.models import MessageChannel, MessageChannelParticipant
+from flowback.chat.services import message_channel_create, message_channel_join, send_channel_info_message
 from flowback.common.services import model_update, get_object
 from flowback.kanban.services import KanbanManager
-from flowback.schedule.models import ScheduleEvent
-from flowback.schedule.services import ScheduleManager, unsubscribe_schedule
-from flowback.user.models import User, OnboardUser, PasswordReset, Report
+from flowback.notification.models import NotificationChannel
+from flowback.schedule.services import schedule_event_create, schedule_event_update, schedule_event_delete
+from flowback.user.models import User, OnboardUser, PasswordReset, Report, UserChatInvite, UserBookmark
 
-user_schedule = ScheduleManager(schedule_origin_name='user')
 user_kanban = KanbanManager(origin_type='user')
 
 
-def user_create(*, username: str, email: str) -> OnboardUser | None:
-    users = User.objects.filter(Q(email=email) | Q(username=username))
+def user_create(*, email: str) -> OnboardUser | None:
+    email = email.lower()
+    users = User.objects.filter(email=email)
     if users.exists():
-        for user in users:
-            if user.email == email:
+        for onboard_user in users:
+            if onboard_user.email == email:
                 raise ValidationError('Email already exists.')
 
             else:
                 raise ValidationError('Username already exists.')
 
-    user = OnboardUser.objects.create(email=email, username=username)
+    onboard_user, created = OnboardUser.objects.update_or_create(email=email,
+                                                                 defaults=dict(is_verified=False,
+                                                                               verification_code=uuid.uuid4()))
 
-    link = f'Use this code to create your account: {user.verification_code}'
-    if FLOWBACK_URL:
-        link = f'''Use this link to create your account: {FLOWBACK_URL}/create_account/
-                   ?email={email}&verification_code={user.verification_code}'''
+    link = f'Use this code to create your account: {onboard_user.verification_code}'
+    if URL_USER_CREATE:
+        link = (f"Use this link to create your account: {URL_USER_CREATE}"
+                f"?verification_code={onboard_user.verification_code}")
 
     if EMAIL_HOST:
         send_mail('Flowback Verification Code', link, DEFAULT_FROM_EMAIL, [email])
 
     else:
         logging.info("Email host not configured. Email not sent, but code was sent to the console.")
-        print(f"Verification code for '{user.username}': {user.verification_code}")
+        print(f"Verification code for '{onboard_user.email}': {onboard_user.verification_code}")
 
-        return user
+    return onboard_user
 
 
-def user_create_verify(*, verification_code: str, password: str):
+def user_create_verify(*, username: str, verification_code: str, password: str):
     onboard_user = get_object_or_404(OnboardUser, verification_code=verification_code)
 
     if User.objects.filter(email=onboard_user.email).exists():
         raise ValidationError('Email already registered')
 
-    elif User.objects.filter(username=onboard_user.username).exists():
+    elif User.objects.filter(username=username).exists():
         raise ValidationError('Username already registered')
 
     elif onboard_user.is_verified:
@@ -65,13 +66,11 @@ def user_create_verify(*, verification_code: str, password: str):
 
     validate_password(password)
 
-    model_update(instance=onboard_user,
-                 fields=['is_verified'],
-                 data=dict(is_verified=True))
+    user = User.objects.create_user(username=username, email=onboard_user.email, password=password)
 
-    return User.objects.create_user(username=onboard_user.username,
-                                    email=onboard_user.email,
-                                    password=password)
+    model_update(instance=onboard_user, fields=['is_verified'], data=dict(is_verified=True))
+
+    return user
 
 
 def user_forgot_password(*, email: str) -> PasswordReset:
@@ -81,9 +80,9 @@ def user_forgot_password(*, email: str) -> PasswordReset:
 
     link = f'Use this code to reset your account password: {password_reset.verification_code}'
 
-    if FLOWBACK_URL:
-        link = f'''Use this link to reset your account password: {FLOWBACK_URL}/forgot_password/
-                       ?email={email}&verification_code={password_reset.verification_code}'''
+    if URL_USER_FORGOT_PASSWORD:
+        link = (f'Use this link to reset your account password: {URL_USER_FORGOT_PASSWORD}'
+                f'?verification_code={password_reset.verification_code}')
 
     if EMAIL_HOST:
         send_mail('Flowback Verification Code', link, DEFAULT_FROM_EMAIL, [email])
@@ -106,20 +105,29 @@ def user_forgot_password_verify(*, verification_code: str, password: str):
     user.set_password(password)
     user.save()
 
-    model_update(instance=password_reset,
-                 fields=['is_verified'],
-                 data=dict(is_verified=True))
+    model_update(instance=password_reset, fields=['is_verified'], data=dict(is_verified=True))
 
     return user
 
 
 def user_update(*, user: User, data) -> User:
-    non_side_effects_fields = ['username', 'profile_image', 'banner_image', 'bio', 'website', 'email_notifications',
-                               'dark_theme', 'contact_email', 'contact_phone', 'user_config']
+    non_side_effects_fields = [
+        'username',
+        'email',
+        'profile_image',
+        'banner_image',
+        'bio',
+        'website',
+        'email_notifications',
+        'dark_theme',
+        'contact_email',
+        'contact_phone',
+        'user_config',
+        'public_status',
+        'chat_status'
+    ]
 
-    user, has_updated = model_update(instance=user,
-                                     fields=non_side_effects_fields,
-                                     data=data)
+    user, has_updated = model_update(instance=user, fields=non_side_effects_fields, data=data)
 
     return user
 
@@ -140,44 +148,12 @@ def user_delete(*, user_id: int) -> None:
         user.full_clean()
         user.save()
 
-        user.schedule.delete()
         user.kanban.delete()
+        OnboardUser.objects.filter(email=user.email).delete()
 
 
-def user_schedule_event_create(*,
-                               user_id: int,
-                               title: str,
-                               start_date: timezone.datetime,
-                               description: str = None,
-                               end_date: timezone.datetime = None) -> ScheduleEvent:
-    user = get_object(User, id=user_id)
-    return user_schedule.create_event(schedule_id=user.schedule.id,
-                                      title=title,
-                                      start_date=start_date,
-                                      end_date=end_date,
-                                      origin_id=user.id,
-                                      origin_name='user',
-                                      description=description)
-
-
-def user_schedule_event_update(*, user_id: int, event_id: int, **data):
-    user = get_object(User, id=user_id)
-    user_schedule.update_event(event_id=event_id, schedule_origin_id=user.id, data=data)
-
-
-def user_schedule_event_delete(*, user_id: int, event_id: int):
-    user = get_object(User, id=user_id)
-    user_schedule.delete_event(event_id=event_id, schedule_origin_id=user.id)
-
-
-def user_schedule_unsubscribe(*,
-                              user_id: int,
-                              target_type: str,
-                              target_id: int):
-    user = get_object(User, id=user_id)
-    schedule = user_schedule.get_schedule(origin_id=user_id)
-    target_schedule = user_schedule.get_schedule(origin_name=target_type, origin_id=target_id)
-    unsubscribe_schedule(schedule_id=schedule.id, target_id=target_schedule.id)
+def user_notification_subscribe(*, user: User, **kwargs):
+    user.notification_channel.subscribe(user=user, **kwargs)
 
 
 def user_kanban_entry_create(*,
@@ -201,58 +177,212 @@ def user_kanban_entry_create(*,
 
 
 def user_kanban_entry_update(*, user_id: int, entry_id: int, data):
-    return user_kanban.kanban_entry_update(origin_id=user_id,
-                                           entry_id=entry_id,
-                                           data=data)
+    return user_kanban.kanban_entry_update(origin_id=user_id, entry_id=entry_id, data=data)
 
 
 def user_kanban_entry_delete(*, user_id: int, entry_id: int):
-    return user_kanban.kanban_entry_delete(origin_id=user_id,
-                                           entry_id=entry_id)
+    return user_kanban.kanban_entry_delete(origin_id=user_id, entry_id=entry_id)
 
 
-def user_get_chat_channel(user_id: int, target_user_ids: int | list[int]):
+def user_get_chat_channel(fetched_by: User,
+                          target_user_ids: int | list[int],
+                          preview: bool = False,
+                          title: str = "",
+                          is_group: bool = False) -> MessageChannel:
+
+    def generate_title(users):
+        channel_title = ""
+        for i, user in enumerate(users):
+            if len(channel_title + user.username) > 50:
+                channel_title += (f"{' and' if channel_title else ''} "
+                                  f"{users.count() - i} "
+                                  f"other(s)...")
+                break
+            else:
+                channel_title += f", {user.username}" if i > 0 else user.username
+
+        return channel_title
+
+    if len(target_user_ids) > 25:
+        raise ValidationError("Cannot invite more than 25 users to group.")
+
     if isinstance(target_user_ids, int):
         target_user_ids = [target_user_ids]
 
-    if user_id not in target_user_ids:
-        target_user_ids.append(user_id)
+    if fetched_by.id not in target_user_ids:
+        target_user_ids.append(fetched_by.id)
 
-    target_users = User.objects.filter(id__in=target_user_ids, is_active=True)
+    target_users = User.objects.filter(id__in=target_user_ids, is_active=True).all()
 
-    if not len(target_users) == len(target_user_ids):
+    if not target_users.count() == len(target_user_ids):
         raise ValidationError("Not every user requested do exist")
+
+    if len(target_user_ids) == 1 and fetched_by.id == target_user_ids[0]:
+        raise ValidationError("Cannot create a chat with yourself")
+
+    # A channel is a group when explicitly requested (e.g. "+ New Group") or when it
+    # has more than two participants. Groups always use the group origin, invite
+    # participants (instead of silently auto-joining a DM partner), and must not
+    # reuse an existing direct-message channel between the same people.
+    group_channel = is_group or target_users.count() > 2
+    desired_origin = (User.message_channel_group_origin if group_channel else User.message_channel_origin)
 
     try:
         # Find a channel where all users are in the same chat
-        channel = MessageChannel.objects.annotate(count=Count('users')).filter(
-            count=target_users.count())
+        channel = MessageChannel.objects.annotate(count=Count('users')).filter(count=target_users.count(),
+                                                                               origin_name=desired_origin)
 
-        for user in target_users.all():
-            channel = channel.filter(users=user.id)
+        for u in target_users:
+            channel = channel.filter(users=u.id)
 
         channel = channel.first()
 
         if not channel:
             raise MessageChannel.DoesNotExist
 
+        for u in target_users:
+            UserChatInvite.objects.filter(user=u, message_channel=channel, rejected=True).update(rejected=None)
+
+        # The requesting user opening the channel counts as accepting their own
+        # pending invite, otherwise they can neither read nor send messages in
+        # the channel they just asked for.
+        own_invite = UserChatInvite.objects.filter(user=fetched_by, message_channel=channel,
+                                                   rejected=None).first()
+        if own_invite:
+            own_invite.rejected = False
+            own_invite.save()
+
     except MessageChannel.DoesNotExist:
-        title = f"{', '.join([u.username for u in target_users])}"
-        channel = message_channel_create(origin_name=User.message_channel_origin,
-                                         title=title if len(target_users) > 1 else None)
+        if preview:
+            raise ValidationError("MessageChannel does not exist between the participants")
+
+        if title == "":
+            title = generate_title(target_users)
+
+        channel = message_channel_create(origin_name=desired_origin, title=title)
 
         # In the future, make this a bulk_create statement
+        share_groups = False
+
+        if not group_channel:
+            share_groups = User.objects.filter(group__groupuser__user__in=target_users).exists()
+
         for u in target_users:
-            message_channel_join(user_id=u.id, channel_id=channel.id)
+            u_is_public = u.chat_status == User.PublicStatus.PUBLIC
+            u_is_group_only = u.chat_status == User.PublicStatus.GROUP_ONLY
+
+            if ((not group_channel and (u_is_public or (u_is_group_only and share_groups))) or u.id == fetched_by.id
+                    or fetched_by.is_superuser == True):
+                message_channel_join(user_id=u.id, channel_id=channel.id)
+
+            else:
+                if not channel.messagechannelparticipant_set.filter(user_id=u.id).exists():
+                    u.notify_chat(action=NotificationChannel.Action.CREATED,
+                                  message="You have been invited to join a chat group",
+                                  message_channel_id=channel.id,
+                                  message_channel_title=channel.title)
+
+                    UserChatInvite.objects.update_or_create(user_id=u.id,
+                                                            message_channel_id=channel.id,
+                                                            rejected=False,
+                                                            defaults=dict(rejected=None))
 
     return channel
 
 
-def report_create(*, user_id: int, title: str, description: str):
+def user_chat_channel_leave(*, user_id: int, channel_id: int):
+    participant = MessageChannelParticipant.objects.get(channel_id=channel_id, user_id=user_id)
+
+    if not participant.channel.origin_name == f'{User.message_channel_origin}_group':
+        raise ValidationError("You can only leave user_group channels")
+
+    participant.channel.delete()
+
+
+def user_chat_invite(user_id: int, invite_id: int, accept: bool = True):
+    user = User.objects.get(id=user_id)
+    invite = UserChatInvite.objects.get(id=invite_id, rejected=None)
+
+    if not invite.user == user:
+        raise ValidationError("You cannot accept an invite for someone else")
+
+    invite.rejected = not accept
+    invite.save()
+
+
+def user_chat_channel_update(*, user_id: int, channel_id: int, **data: dict) -> MessageChannel | None:
+    participant = MessageChannelParticipant.objects.get(
+        channel_id=channel_id,
+        user_id=user_id,
+        active=True,
+        channel__origin_name__in=[User.message_channel_origin, User.message_channel_group_origin])
+
+    channel, has_updated = model_update(instance=MessageChannel.objects.get(id=channel_id), fields=['title'], data=data)
+
+    send_channel_info_message(participant, message=f"Channel changed name to {channel.title}")
+
+    return channel
+
+
+def report_create(*,
+                  user_id: int,
+                  title: str,
+                  description: str,
+                  group_id: int = None,
+                  post_id: int = None,
+                  post_type: str = None):
     user = get_object(User, id=user_id)
 
-    report = Report(user=user, title=title, description=description)
+    report = Report(user=user,
+                    title=title,
+                    description=description,
+                    group_id=group_id,
+                    post_id=post_id,
+                    post_type=post_type)
     report.full_clean()
     report.save()
 
     return report
+
+
+def report_update(*, report_id: int, **data):
+    report = Report.objects.get(id=report_id)
+    non_side_effects_fields = ['title', 'description', 'action_description', 'group_id', 'post_id', 'post_type']
+
+    report, has_updated = model_update(instance=report, fields=non_side_effects_fields, data=data)
+    return report
+
+
+def user_schedule_event_create(user: User, **data):
+    data['schedule_id'] = user.schedule.id
+    return schedule_event_create(created_by=user, **data)
+
+
+def user_schedule_event_update(user: User, **data):
+    data['schedule_id'] = user.schedule.id
+    return schedule_event_update(**data)
+
+
+def user_schedule_event_delete(user: User, **data):
+    data['schedule_id'] = user.schedule.id
+    return schedule_event_delete(**data)
+
+
+def user_bookmark_create(*, user_id: int, object_id: int, content_type: str | Model):
+    if isinstance(content_type, Model):
+        content_type = content_type.objects.get(id=object_id)
+
+    if isinstance(content_type, str):
+        content_type = ContentType.objects.get(model=content_type.lower())
+
+    return UserBookmark.objects.create(user_id=user_id, content_type=content_type, object_id=object_id)
+
+
+def user_bookmark_delete(*, user_id: int, object_id: int, content_type: str | Model):
+    if isinstance(content_type, Model):
+        content_type = content_type.objects.get(id=object_id)
+
+    if isinstance(content_type, str):
+        content_type = ContentType.objects.get(model=content_type.lower())
+
+    UserBookmark.objects.get(user_id=user_id, content_type=content_type, object_id=object_id).delete()

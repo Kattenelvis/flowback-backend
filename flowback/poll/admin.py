@@ -1,5 +1,14 @@
 from django.contrib import admin
-from .models import Poll, PollProposal, PollPredictionBet, PollPhaseTemplate
+from .models import Poll
+from .phases import (PollAreaStatement,
+                     PollAreaStatementSegment,
+                     PollAreaStatementVote,
+                     PollPhaseTemplate,
+                     PollPredictionBet,
+                     PollProposal,
+                     PollProposalKPI,
+                     PollProposalKPIBet,
+                     PollProposalKPIVote)
 
 
 @admin.register(Poll)
@@ -17,7 +26,7 @@ class PollAdmin(admin.ModelAdmin):
         }),
         ('Dates', {
             'fields': (
-            'start_date', 'proposal_end_date', 'vote_start_date', 'delegate_vote_end_date', 'vote_end_date', 'end_date')
+            'start_date', 'area_vote_end_date', 'proposal_end_date', 'prediction_statement_end_date', 'prediction_bet_end_date', 'delegate_vote_end_date', 'vote_end_date', 'end_date')
         }),
         ('Optional Dynamic Counting Support', {
             'fields': ('dynamic',)
@@ -62,3 +71,42 @@ class PollPhaseTemplateAdmin(admin.ModelAdmin):
     )
 
     ordering = ('-created_at', 'created_at')
+
+
+@admin.register(PollAreaStatement)
+class PollAreaStatementAdmin(admin.ModelAdmin):
+    list_display = ('poll', 'created_by', 'created_at')
+    list_filter = ('created_at',)
+    search_fields = ('poll__title', 'created_by__user__username')
+    date_hierarchy = 'created_at'
+
+
+@admin.register(PollAreaStatementVote)
+class PollAreaStatementVoteAdmin(admin.ModelAdmin):
+    list_display = ('poll_area_statement', 'created_by', 'vote', 'created_at')
+    list_filter = ('vote', 'created_at')
+    search_fields = ('poll_area_statement__poll__title', 'created_by__user__username')
+    date_hierarchy = 'created_at'
+
+
+@admin.register(PollAreaStatementSegment)
+class PollAreaStatementSegmentAdmin(admin.ModelAdmin):
+    list_display = ('poll_area_statement', 'tag', 'created_at')
+    list_filter = ('tag', 'created_at')
+    search_fields = ('poll_area_statement__poll__title', 'tag__name')
+    date_hierarchy = 'created_at'
+
+
+@admin.register(PollProposalKPI)
+class PollProposalKPIAdmin(admin.ModelAdmin):
+    list_display = ('proposal', 'kpi_value', 'combined_bet')
+
+
+@admin.register(PollProposalKPIBet)
+class PollProposalKPIBetAdmin(admin.ModelAdmin):
+    list_display = ('created_by', 'proposal_kpi', 'weight')
+
+
+@admin.register(PollProposalKPIVote)
+class PollProposalKPIVoteAdmin(admin.ModelAdmin):
+    list_display = ('created_by', 'proposal_kpi')
