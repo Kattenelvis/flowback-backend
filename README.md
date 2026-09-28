@@ -13,8 +13,9 @@ To run Flowback backend using Docker Compose, follow these instructions:
 1) [Download](https://github.com/Gofven/flowback/archive/refs/heads/master.zip) or [Clone](https://docs.github.com/en/repositories/creating-and-managing-repositories/cloning-a-repository) this repository to your local computer
 2) Download [Docker Desktop](https://www.docker.com/products/docker-desktop/) (Windows, macOS and Linux) or [Docker Compose](https://docs.docker.com/compose/install/linux/) (Linux)
 3) Navigate to the root of this repository.
-4) Run `docker compose up -d`
-5) Flowback backend should now be accessible (by default on http://localhost:8000)
+4) Set `PUBLIC_API_URL` in `.env` to the public URL where the API will be accessible, for example `PUBLIC_API_URL=http://127.0.0.1:8000` for local development.
+5) Run `docker compose up -d`
+6) Flowback backend should now be accessible (by default on http://localhost:8000)
 
 #### Documentation
 You can find the api documenation at http://127.0.0.1:8000/schema/redoc/ once you have started the backend with docker.

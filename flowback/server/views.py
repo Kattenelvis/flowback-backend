@@ -40,7 +40,13 @@ class ServerConfigListAPI(APIView):
 
 
 class ServerReportListAPI(APIView):
+    class FilterSerializer(serializers.Serializer):
+        group_id = serializers.IntegerField(required=False,
+                                            help_text="Only list reports of this group, "
+                                                      "allows group admins to view their group's reports")
+
     class OutputSerializer(serializers.Serializer):
+        id = serializers.IntegerField()
         title = serializers.CharField()
         description = serializers.CharField()
         group_id = serializers.IntegerField()
@@ -49,7 +55,10 @@ class ServerReportListAPI(APIView):
         admin_action = serializers.ChoiceField(choices=['nothing', 'deleted'])
 
     def get(self, request):
-        reports = reports_list(fetched_by=request.user)
+        filter_serializer = self.FilterSerializer(data=request.query_params)
+        filter_serializer.is_valid(raise_exception=True)
+
+        reports = reports_list(fetched_by=request.user, **filter_serializer.validated_data)
 
         return get_paginated_response(pagination_class=LimitOffsetPagination,
                                       serializer_class=self.OutputSerializer,

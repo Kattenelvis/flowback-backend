@@ -1,0 +1,23 @@
+name: Semgrep Scan
+
+on:
+  push:
+    branches:
+      - master
+      - development
+  pull_request:
+
+jobs:
+  semgrep:
+    permissions:
+      contents: read
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: semgrep/semgrep-action@v1
+        with:
+          config: >
+            p/python
+            p/django
+            p/owasp-top-ten
+            p/security-audit

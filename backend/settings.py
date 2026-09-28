@@ -11,6 +11,7 @@ env = environ.Env(DEBUG=(bool, True),
                   LOGGING=(str, 'INFO'),
                   SECURE_PROXY_SSL_HEADERS=(bool, False),
                   DJANGO_SECRET=str,
+                  PUBLIC_API_URL=(str, 'http://127.0.0.1:8000'),
                   FLOWBACK_URL=(str, None),
                   URL_USER_CREATE=(str, None),
                   URL_USER_FORGOT_PASSWORD=(str, None),
@@ -79,6 +80,7 @@ if TESTING:
 
 # Django Secret Key. If it's missing, it'll be generated and stored in .env
 SECRET_KEY = env('DJANGO_SECRET', default=None)
+PUBLIC_API_URL = env('PUBLIC_API_URL')
 
 if not SECRET_KEY:
     from django.core.management.utils import get_random_secret_key
