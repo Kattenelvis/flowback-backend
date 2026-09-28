@@ -68,7 +68,7 @@ jobs:
       - uses: docker/build-push-action@v6
         with:
           outputs: type=docker,dest=/tmp/flowback-backend.tar
-          tags: ${{ secrets.DOCKERHUB_USERNAME || github.repository_owner }}/flowback-backend:latest
+          tags: flowback-backend:ci
 
       - uses: actions/upload-artifact@v4
         with:
@@ -99,11 +99,14 @@ jobs:
       - name: Load backend image
         run: docker load --input flowback-backend.tar
 
+      # Tag the CI image with the names flowback-docker's compose file expects for
+      # the backend and Celery services, so they run this commit's code
       - name: Tag backend image for Compose services
+        working-directory: flowback-docker
         run: |
-          docker tag "${{ secrets.DOCKERHUB_USERNAME || github.repository_owner }}/flowback-backend:latest" flowback-docker-flowback-backend:latest
-          docker tag "${{ secrets.DOCKERHUB_USERNAME || github.repository_owner }}/flowback-backend:latest" flowback-docker-flowback-celery-worker:latest
-          docker tag "${{ secrets.DOCKERHUB_USERNAME || github.repository_owner }}/flowback-backend:latest" flowback-docker-flowback-celery-beat:latest
+          for image in $(docker compose config --images | grep -E 'flowback-(backend|celery)'); do
+            docker tag flowback-backend:ci "$image"
+          done
 
       - name: Checkout frontend
         uses: actions/checkout@v4
@@ -116,9 +119,14 @@ jobs:
         working-directory: flowback-docker
         run: docker compose build flowback-frontend caddy
 
+      - name: Pull published images
+        working-directory: flowback-docker
+        run: docker compose pull flowback-postgresql flowback-redis
+
+      # --pull never: fail instead of silently falling back to a published image
       - name: Start Flowback stack
         working-directory: flowback-docker
-        run: docker compose up -d --no-build --pull missing
+        run: docker compose up -d --no-build --pull never
       
       - uses: actions/checkout@v4
         with:
@@ -148,7 +156,7 @@ jobs:
 
       - name: Run the rest of the tests
         working-directory: flowback-interface-testing
-        run: npx playwright test . --project chromium --retries 2 --workers 1 --reporter list
+        run: npx playwright test . --project chromium --retries 2 --workers 3 --reporter list
           --grep-invert "Smoke-Test"
 
       - name: Dump docker logs on failure
@@ -182,7 +190,9 @@ jobs:
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - name: Publish backend image
-        run: docker push ${{ secrets.DOCKERHUB_USERNAME }}/flowback-backend:latest
+        run: |
+          docker tag flowback-backend:ci ${{ secrets.DOCKERHUB_USERNAME }}/flowback-backend:latest
+          docker push ${{ secrets.DOCKERHUB_USERNAME }}/flowback-backend:latest
 
   publish-dev:
     needs: docker-publish
@@ -198,8 +208,12 @@ jobs:
           key: ${{ secrets.KEY }}
           port: 22
           script: |
-            cd flowback/flowback-docker-testing
-            docker compose pull && docker compose up -d
+            set -e
+            cd /home/flowback/dev-flowback
+            docker compose pull flowback-frontend flowback-backend flowback-postgresql flowback-redis
+            docker compose up -d --no-build flowback-frontend flowback-backend flowback-postgresql flowback-redis
+            docker compose build caddy
+            docker compose up -d --no-build caddy
 
   # Production publishes only from development or master pushes.
   publish-prod:
@@ -218,5 +232,9 @@ jobs:
           key: ${{ secrets.KEY }}
           port: 22
           script: |
-            cd flowback/flowback-docker-prod
-            docker compose pull && docker compose up -d
+            set -e
+            cd /home/flowback/prod-flowback
+            docker compose pull flowback-frontend flowback-backend flowback-postgresql flowback-redis
+            docker compose up -d --no-build flowback-frontend flowback-backend flowback-postgresql flowback-redis
+            docker compose build caddy
+            docker compose up -d --no-build caddy
