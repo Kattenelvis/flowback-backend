@@ -45,6 +45,7 @@ env = environ.Env(DEBUG=(bool, True),
                   EMAIL_HOST_PASSWORD=(str, None),
                   EMAIL_USE_TLS=(bool, None),
                   EMAIL_USE_SSL=(bool, None),
+                  EMAIL_TIMEOUT=(int, 30),
                   INTEGRATIONS=(list, []),
                   FLOWBACK_SCORE_VOTE_CEILING=(int, 100),
                   FLOWBACK_SCORE_VOTE_FLOOR=(int, 0),
@@ -324,8 +325,10 @@ EMAIL_HOST = env('EMAIL_HOST')
 EMAIL_PORT = env('EMAIL_PORT')
 EMAIL_HOST_USER = env('EMAIL_HOST_USER')
 EMAIL_HOST_PASSWORD = env('EMAIL_HOST_PASSWORD')
-EMAIL_USE_TLS = env('EMAIL_USE_TLS') or True
 EMAIL_USE_SSL = env('EMAIL_USE_SSL') or False
+# STARTTLS by default, unless implicit SSL is used (the two are mutually exclusive)
+EMAIL_USE_TLS = env('EMAIL_USE_TLS') if env('EMAIL_USE_TLS') is not None else not EMAIL_USE_SSL
+EMAIL_TIMEOUT = env('EMAIL_TIMEOUT')
 DEFAULT_FROM_EMAIL = env('EMAIL_FROM', default=env('EMAIL_HOST_USER'))
 
 # User related settings
