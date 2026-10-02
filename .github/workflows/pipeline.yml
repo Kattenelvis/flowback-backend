@@ -204,7 +204,7 @@ jobs:
     timeout-minutes: 10
     runs-on: ubuntu-latest
     steps:
-      - name: Execute remote SSH commands using password
+      - name: Execute remote SSH commands
         uses: appleboy/ssh-action@v1
         with:
           host: ${{ secrets.HOST }}
@@ -213,14 +213,12 @@ jobs:
           port: 22
           # The SSH user can't read the checkout; run the deploy as flowback
           script: |
-            sudo -n -iu flowback bash -se <<'EOF'
             cd /home/flowback/dev-flowback
             export BACKEND_TAG=${{ env.BACKEND_TAG }}
             docker compose pull flowback-frontend flowback-backend flowback-postgresql flowback-redis
             docker compose up -d --no-build flowback-frontend flowback-backend flowback-postgresql flowback-redis
             docker compose build caddy
             docker compose up -d --no-build caddy
-            EOF
 
   # Production publishes only from master pushes.
   publish-prod:
@@ -231,7 +229,7 @@ jobs:
     runs-on: ubuntu-latest
     environment: production
     steps:
-      - name: Execute remote SSH commands using password
+      - name: Execute remote SSH commands
         uses: appleboy/ssh-action@v1
         with:
           host: ${{ secrets.HOST }}
@@ -240,10 +238,8 @@ jobs:
           port: 22
           # The SSH user can't read the checkout; run the deploy as flowback
           script: |
-            sudo -n -iu flowback bash -se <<'EOF'
             cd /home/flowback/prod-flowback
             docker compose pull flowback-frontend flowback-backend flowback-postgresql flowback-redis
             docker compose up -d --no-build flowback-frontend flowback-backend flowback-postgresql flowback-redis
             docker compose build caddy
             docker compose up -d --no-build caddy
-            EOF
