@@ -13,10 +13,8 @@ from flowback.user.views.user import (UserLoginAPI,
                                       UserUpdateApi,
                                       UserDeleteAPI,
                                       UserForgotPasswordApi,
-                                      UserForgotPasswordVerifyApi, UserGetChatChannelAPI, UserChatInviteListAPI,
-                                      UserChatInviteAPI, UserLogoutAPI, UserLeaveChatChannelAPI,
-                                      UserChatChannelUpdateAPI, UserNotificationSubscribeAPI, UserBookmarkCreateAPI,
-                                      UserBookmarkDeleteAPI)
+                                      UserForgotPasswordVerifyApi, UserLogoutAPI, UserNotificationSubscribeAPI,
+                                      UserBookmarkCreateAPI, UserBookmarkDeleteAPI)
 from flowback.user.views.kanban import (UserKanbanEntryListAPI,
                                         UserKanbanEntryCreateAPI,
                                         UserKanbanEntryUpdateAPI,
@@ -48,11 +46,6 @@ user_patterns = [
     path('user/schedule/event/delete', UserScheduleEventDeleteAPI.as_view(), name='user_schedule_event_delete'),
 
     path('user/home', UserHomeFeedAPI.as_view(), name='user_home_feed'),
-    path('user/chat', UserGetChatChannelAPI.as_view(), name='user_get_chat_channel'),
-    path('user/chat/leave', UserLeaveChatChannelAPI.as_view(), name='user_leave_chat_channel'),
-    path('user/chat/invite/list', UserChatInviteListAPI.as_view(), name='user_chat_invite_list'),
-    path('user/chat/invite', UserChatInviteAPI.as_view(), name='user_chat_invite'),
-    path('user/chat/update', UserChatChannelUpdateAPI.as_view(), name='user_chat_channel_update'),
     path('report/create', ReportCreateAPI.as_view(), name='report_create'),
 
     path('user/bookmark/create', UserBookmarkCreateAPI.as_view(), name='user_bookmark_create'),

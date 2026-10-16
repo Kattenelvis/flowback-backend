@@ -8,10 +8,8 @@ from django.db import models
 from django.contrib.auth.models import AbstractBaseUser, PermissionsMixin
 from django.db.models.signals import post_save, post_delete
 from django.utils import timezone
-from django.utils.functional import classproperty
 from django.utils.translation import gettext_lazy as _
 
-from flowback.chat.models import MessageChannelParticipant
 from flowback.common.models import BaseModel
 from flowback.common.validators import FieldNotBlankValidator
 from flowback.kanban.models import Kanban
@@ -81,14 +79,6 @@ class User(AbstractBaseUser, PermissionsMixin, NotifiableModel, ScheduleModel):
     REQUIRED_FIELDS = ['username']
 
     objects = CustomUserManager()
-
-    @classproperty
-    def message_channel_origin(self) -> str:
-        return "user"
-
-    @classproperty
-    def message_channel_group_origin(self) -> str:
-        return "user_group"
 
     NOTIFICATION_DATA_FIELDS = (('user_id', int, 'The ID of the user'),
                                 ('username', str, "The user's username"))
@@ -176,25 +166,3 @@ class Report(BaseModel):
     group_id = models.IntegerField(null=True, blank=True)
     post_id = models.IntegerField(null=True, blank=True)
     post_type = models.CharField(max_length=50, null=True, blank=True, validators=[FieldNotBlankValidator])
-
-
-class UserChatInvite(BaseModel):
-    user = models.ForeignKey(User, on_delete=models.CASCADE)
-    message_channel = models.ForeignKey('chat.MessageChannel', on_delete=models.CASCADE)
-    rejected = models.BooleanField(default=False, null=True, blank=True)
-
-    @classmethod
-    def post_save(cls, instance, created, *args, **kwargs):
-        if created:
-            MessageChannelParticipant.objects.create(user=instance.user, channel=instance.message_channel, active=False)
-            return
-
-        if not instance.rejected:
-            MessageChannelParticipant.objects.update_or_create(user=instance.user, channel=instance.message_channel,
-                                                               defaults=dict(active=True))
-
-    class Meta:
-        constraints = [models.UniqueConstraint(fields=['user', 'message_channel'], name='unique_user_invite')]
-
-
-post_save.connect(UserChatInvite.post_save, sender=UserChatInvite)

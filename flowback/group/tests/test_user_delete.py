@@ -50,7 +50,7 @@ class GroupUserDeleteTest(APITestCase):
 
         self.assertFalse(KanbanSubscription.objects.filter(kanban=self.group_user.user.kanban,
                                                            target=self.group.kanban).exists())
-        self.assertFalse(MessageChannelParticipant.objects.get(id=self.group_user.chat_participant_id).active)
+        self.assertFalse(MessageChannelParticipant.objects.get(id=self.group_user.chat_participant_id).is_active)
         self.assertFalse(NotificationSubscription.objects.filter(
             channel__in=self.group.notification_channel.descendants(include_self=True),
             user=self.group_user.user).exists())
@@ -103,7 +103,7 @@ class GroupUserDeleteTest(APITestCase):
         rejoined = GroupUser.objects.get(user=self.group_user.user, group=self.group)
         self.assertEqual(rejoined.id, self.group_user.id)
         self.assertTrue(rejoined.active)
-        self.assertTrue(MessageChannelParticipant.objects.get(id=rejoined.chat_participant_id).active)
+        self.assertTrue(MessageChannelParticipant.objects.get(id=rejoined.chat_participant_id).is_active)
         self.assertTrue(GroupThread.objects.filter(id=self.thread.id, created_by=rejoined).exists())
         self.assertTrue(Poll.objects.filter(id=self.poll.id, created_by=rejoined).exists())
 
@@ -116,7 +116,7 @@ class GroupUserDeleteTest(APITestCase):
         rejoined = GroupUser.objects.get(user=self.group_user.user, group=self.group)
         self.assertEqual(rejoined.id, self.group_user.id)
         self.assertTrue(rejoined.active)
-        self.assertTrue(MessageChannelParticipant.objects.get(id=rejoined.chat_participant_id).active)
+        self.assertTrue(MessageChannelParticipant.objects.get(id=rejoined.chat_participant_id).is_active)
 
     def test_non_admin_cannot_kick(self):
         response = self.kick(by=self.other_group_user)

@@ -1,182 +1,178 @@
-import unittest
+import asyncio
 
 from asgiref.sync import sync_to_async
 from channels.testing import WebsocketCommunicator
+from django.test import override_settings
 from knox.models import AuthToken
 from rest_framework.test import APITransactionTestCase
 
 from backend.middleware import TokenAuthMiddleware
 from flowback.chat.consumers import ChatConsumer
-from flowback.chat.models import MessageChannel, Message
-from flowback.chat.tests.factories import MessageChannelFactory, MessageChannelParticipantFactory
-from flowback.group.models import GroupUser
+from flowback.chat.services import (group_chat_create, channel_invite_accept, channel_leave, channel_rename,
+                                    direct_channel_get_or_create)
 from flowback.group.tests.factories import GroupFactory, GroupUserFactory
 from flowback.user.models import User
-from flowback.user.services import user_get_chat_channel
 from flowback.user.tests.factories import UserFactory
 
 
-# Note: testing this requires uncommenting a field in flowback/chat/signals.py temporarily
-class TestChatWebsocket(APITransactionTestCase):
+@override_settings(CHANNEL_LAYERS={'default': {'BACKEND': 'channels.layers.InMemoryChannelLayer'}})
+class ChatWebsocketTest(APITransactionTestCase):
     def setUp(self):
-        self.user_one = UserFactory()
-        self.user_two = UserFactory()
-        self.user_three = UserFactory()
-        self.user_four = UserFactory()
+        self.creator = UserFactory()
+        self.member = UserFactory()
+        self.invitee = UserFactory()
+        self.channel = group_chat_create(user=self.creator, title="Chat",
+                                         user_ids=[self.member.id, self.invitee.id])
+        channel_invite_accept(user=self.member, channel_id=self.channel.id)
 
-        self.message_channel = MessageChannelFactory(origin_name='user')
-        MessageChannelParticipantFactory(channel=self.message_channel, user=self.user_one)
-        MessageChannelParticipantFactory(channel=self.message_channel, user=self.user_two)
-
-        self.group = GroupFactory(created_by=self.user_one)
-        self.group_message_channel = self.group.chat
-        self.group_user_one = GroupUser.objects.get(group=self.group, user=self.user_one)
-        self.group_user_two = GroupUserFactory(group=self.group, user=self.user_two)
-        self.group_user_three = GroupUserFactory(group=self.group, user=self.user_three)
-
-    @sync_to_async(thread_sensitive=True)
+    @sync_to_async
     def get_auth_token(self, user: User):
         instance, token = AuthToken.objects.create(user=user)
         return token
 
-    async def connect(self, user: User | UserFactory) -> WebsocketCommunicator:
-        """
-        Communicates with the websocket
-        Remember to disconnect using communicator.disconnect()
-        :return: WebsocketCommunicator
-        """
+    async def connect(self, user: User) -> WebsocketCommunicator:
         token = await self.get_auth_token(user=user)
-        application = TokenAuthMiddleware(ChatConsumer.as_asgi())
-        communicator = WebsocketCommunicator(application, f"/chat/ws?token={token}")
-        connected, subprotocol = await communicator.connect()
+        communicator = WebsocketCommunicator(TokenAuthMiddleware(ChatConsumer.as_asgi()), f"/chat/ws?token={token}")
+        connected, _ = await communicator.connect()
         self.assertTrue(connected)
         return communicator
 
-    async def test_connect(self):
-        communicator = await self.connect(user=self.user_one)
-        communicator_two = await self.connect(user=self.user_two)
-        await communicator.disconnect()
-        await communicator_two.disconnect()
+    async def receive_until(self, communicator: WebsocketCommunicator, event_type: str, text: str = None,
+                            timeout=3) -> dict:
+        """Skips other events until one of the given type (and message text) arrives."""
+        while True:
+            event = await communicator.receive_json_from(timeout=timeout)
+            if event['type'] == event_type and (text is None or event['message']['message'] == text):
+                return event
 
-    async def test_send_message_user(self):
-        communicator_one = await self.connect(user=self.user_one)
-        communicator_two = await self.connect(user=self.user_two)
+    async def send(self, communicator: WebsocketCommunicator, text: str, client_id: str = None, channel_id=None):
+        await communicator.send_json_to(dict(method='message_create', channel_id=channel_id or self.channel.id,
+                                             message=text, client_id=client_id))
 
-        # Message
-        message = dict(channel_id=self.message_channel.id, message="test message", method="message_create")
-        await communicator_one.send_json_to(message)
+    async def test_messages_reach_active_members_only(self):
+        creator = await self.connect(self.creator)
+        member = await self.connect(self.member)
+        invitee = await self.connect(self.invitee)
 
-        # Check if the user got a confirmation
-        response = await communicator_one.receive_json_from(timeout=5)
-        self.assertNotEqual(response.get('status'), 'error', response)
+        await self.send(creator, "Hello", client_id="draft-1")
 
-        # Check if the recipient got the message
-        response = await communicator_two.receive_json_from(timeout=5)
-        self.assertTrue(response.get('user'))
-        self.assertEqual(response['user'].get('username'), self.user_one.username)
-        self.assertEqual(response['user'].get('id'), self.user_one.id)
-        self.assertEqual(response.get('message'), message.get('message'))
+        own = await self.receive_until(creator, 'message.created')
+        self.assertEqual(own['client_id'], "draft-1")
+        self.assertEqual(own['message']['message'], "Hello")
 
-        # Message back
-        message = dict(channel_id=self.message_channel.id, message="test message two", method="message_create")
-        await communicator_two.send_json_to(message)
+        received = await self.receive_until(member, 'message.created')
+        self.assertEqual(received['message']['message'], "Hello")
+        self.assertEqual(received['message']['user']['id'], self.creator.id)
 
-        # Check if the user got a confirmation
-        response = await communicator_two.receive_json_from(timeout=5)
-        self.assertNotEqual(response.get('status'), 'error', response)
+        self.assertTrue(await invitee.receive_nothing(timeout=0.3))
 
-        # Check if the recipient got the message
-        response = await communicator_one.receive_json_from(timeout=5)
-        self.assertTrue(response.get('user'))
-        self.assertEqual(response['user'].get('username'), self.user_two.username)
-        self.assertEqual(response['user'].get('id'), self.user_two.id)
-        self.assertEqual(response.get('message'), message.get('message'))
+        for communicator in [creator, member, invitee]:
+            await communicator.disconnect()
 
-        await communicator_one.disconnect()
-        await communicator_two.disconnect()
+    async def test_accepting_an_invite_subscribes_without_reconnecting(self):
+        creator = await self.connect(self.creator)
+        invitee = await self.connect(self.invitee)
 
-    async def test_send_message_new_user(self):
-        communicator_one = await self.connect(user=self.user_one)
-        communicator_two = await self.connect(user=self.user_two)
-        communicator_three = await self.connect(user=self.user_three)
-        communication_four = await self.connect(user=self.user_four)
+        await sync_to_async(channel_invite_accept)(user=self.invitee, channel_id=self.channel.id)
+        added = await self.receive_until(invitee, 'channel.added')
+        self.assertEqual(added['channel']['id'], self.channel.id)
+        self.assertEqual(added['channel']['status'], 'active')
 
-        channel_factory = sync_to_async(MessageChannelFactory)
-        participant_factory = sync_to_async(MessageChannelParticipantFactory)
+        await self.send(creator, "Welcome")
+        await self.receive_until(invitee, 'message.created', "Welcome")
 
-        channel = await channel_factory(origin_name='user')
-        await participant_factory(channel=channel, user=self.user_one)
-        await participant_factory(channel=channel, user=self.user_three)
+        await creator.disconnect()
+        await invitee.disconnect()
 
-        message = dict(channel_id=channel.id, message="test message", method="message_create")
-        await communicator_one.send_json_to(message)
+    async def test_leaving_stops_messages(self):
+        creator = await self.connect(self.creator)
+        member = await self.connect(self.member)
 
-        await communicator_three.receive_json_from(timeout=5)
+        await sync_to_async(channel_leave)(user=self.member, channel_id=self.channel.id)
+        removed = await self.receive_until(member, 'channel.removed')
+        self.assertEqual(removed['channel_id'], self.channel.id)
 
-        await communicator_one.disconnect()
-        await communicator_two.disconnect()
-        await communicator_three.disconnect()
-        await communication_four.disconnect()
+        left = await self.receive_until(creator, 'message.created')
+        self.assertEqual(left['message']['event'], 'left')
+        updated = await self.receive_until(creator, 'channel.updated')
+        self.assertEqual(updated['member_count'], 1)
 
-    @unittest.skip("Testing Message Join requires async tests to be running, which makes other tests incompatible, "
-                   "additionally users won't be able to know whether they joined the channel or not "
-                   "due to missing send_channel_info_message for users private message channel")
-    async def test_send_message_user_get_chat_channel(self):
-        communicator_one = await self.connect(user=self.user_three)
-        communicator_two = await self.connect(user=self.user_four)
+        await asyncio.sleep(0.1)  # Let the unsubscribe reach the member's socket
+        while not await member.receive_nothing(timeout=0.1):
+            await member.receive_json_from()
 
-        ugcc = sync_to_async(user_get_chat_channel)
+        await self.send(creator, "Are you there?")
+        await self.receive_until(creator, 'message.created', "Are you there?")
+        self.assertTrue(await member.receive_nothing(timeout=0.3))
 
-        chat_channel = await ugcc(fetched_by=self.user_three, target_user_ids=[self.user_four.id])
+        await creator.disconnect()
+        await member.disconnect()
 
-        await communicator_one.receive_json_from(timeout=5)
+    async def test_rename_reaches_members(self):
+        member = await self.connect(self.member)
 
-        await communicator_one.disconnect()
-        await communicator_two.disconnect()
+        await sync_to_async(channel_rename)(user=self.creator, channel_id=self.channel.id, title="New name")
+        updated = await self.receive_until(member, 'channel.updated')
+        self.assertEqual(updated['title'], "New name")
 
-    async def test_send_message_group(self):
-        def message_check(data, message):
-            self.assertNotEqual(data.get('status'), 'error', data)
-            self.assertEqual(data.get('message'), message.get('message'))
-            self.assertEqual(data.get('channel_id'), message.get('channel_id'))
+        await member.disconnect()
 
-            if not data.get('type') == 'info':
-                self.assertTrue(data.get('user'))
-                self.assertEqual(data['user'].get('username'), self.user_one.username)
+    async def test_joining_a_group_mid_session_receives_its_chat(self):
+        group = await sync_to_async(GroupFactory)(created_by=self.creator)
+        creator = await self.connect(self.creator)
+        member = await self.connect(self.member)
 
-        communicator_one = await self.connect(user=self.user_one)
-        communicator_two = await self.connect(user=self.user_two)
-        communicator_three = await self.connect(user=self.user_three)
-        communicator_four = await self.connect(user=self.user_four)
+        await sync_to_async(GroupUserFactory)(group=group, user=self.member)
+        await self.receive_until(member, 'channel.added')
 
-        # Message
-        msg = dict(channel_id=self.group_message_channel.id, message="test message", method="message_create")
-        await communicator_one.send_json_to(msg)
+        await self.send(creator, "Hi group", channel_id=group.chat_id)
+        await self.receive_until(member, 'message.created', "Hi group")
 
-        response = await communicator_one.receive_json_from(timeout=5)
-        message_check(response, msg)
+        await creator.disconnect()
+        await member.disconnect()
 
-        response = await communicator_two.receive_json_from(timeout=5)
-        message_check(response, msg)
+    async def test_new_direct_message_reaches_the_other_person(self):
+        stranger = await sync_to_async(UserFactory)(chat_status=User.PublicStatus.PUBLIC)
+        receiver = await self.connect(stranger)
+        sender = await self.connect(self.creator)
 
-        response = await communicator_three.receive_json_from(timeout=5)
-        message_check(response, msg)
+        channel = await sync_to_async(direct_channel_get_or_create)(user=self.creator, target_user_id=stranger.id)
+        added = await self.receive_until(receiver, 'channel.added')
+        self.assertEqual(added['channel']['title'], self.creator.username)
 
-        with self.assertRaises(TimeoutError):
-            await communicator_four.receive_json_from(timeout=1)
+        await self.send(sender, "First message", channel_id=channel.id)
+        await self.receive_until(receiver, 'message.created', "First message")
 
-        joined_msg = dict(channel_id=self.group_message_channel.id, message=f"User {self.user_four.username} joined the channel", method="message_create")
-        group_user_four = await sync_to_async(GroupUserFactory)(group=self.group, user=self.user_four)
+        await sender.disconnect()
+        await receiver.disconnect()
 
-        response = await communicator_one.receive_json_from(timeout=5)
-        message_check(response, joined_msg)
+    async def test_errors_keep_the_socket_open(self):
+        invitee = await self.connect(self.invitee)
 
-        leave_msg = dict(channel_id=self.group_message_channel.id, message=f"User {self.user_four.username} left the channel", method="message_create")
-        await GroupUser.objects.filter(id=group_user_four.id).adelete()
+        await self.send(invitee, "Can I talk yet?", client_id="draft-2")
+        error = await self.receive_until(invitee, 'error')
+        self.assertEqual(error['client_id'], "draft-2")
+        self.assertEqual(error['method'], 'message_create')
 
-        response = await communicator_one.receive_json_from(timeout=5)
-        message_check(response, leave_msg)
+        await invitee.send_to(text_data="not json")
+        await self.receive_until(invitee, 'error')
 
-        await communicator_one.disconnect()
-        await communicator_two.disconnect()
-        await communicator_three.disconnect()
+        await invitee.send_json_to(dict(method='no_such_method'))
+        await self.receive_until(invitee, 'error')
+
+        await invitee.disconnect()
+
+    async def test_too_long_messages_get_a_clear_error(self):
+        member = await self.connect(self.member)
+
+        await self.send(member, "x" * 2001, client_id="draft-3")
+        error = await self.receive_until(member, 'error')
+        self.assertEqual(error['client_id'], "draft-3")
+        self.assertIn('message', error['detail'])
+
+        await member.disconnect()
+
+    async def test_anonymous_users_are_rejected(self):
+        communicator = WebsocketCommunicator(TokenAuthMiddleware(ChatConsumer.as_asgi()), "/chat/ws")
+        connected, _ = await communicator.connect()
+        self.assertFalse(connected)
