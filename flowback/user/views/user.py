@@ -34,30 +34,30 @@ class UserLoginAPI(KnoxLoginView):
     permission_classes = (AllowAny, )
 
     class InputSerializer(serializers.Serializer):
-        username = serializers.CharField()
+        email = serializers.EmailField()
         password = serializers.CharField()
 
         def validate(self, attrs):
-            username = attrs.get('username')
+            email = attrs.get('email')
             password = attrs.get('password')
 
             # Same error for unknown user and wrong password to prevent user enumeration
-            try:
-                user = User.objects.get(username=username)
-            except User.DoesNotExist:
+            user = User.objects.filter(email__iexact=email).first()
+            if user is None:
                 # Run the password hasher anyway so response time doesn't reveal whether the user exists
                 User().set_password(password)
-                raise ValidationError('Wrong username or password')
+                raise ValidationError('Wrong email or password')
 
             if not user.check_password(password):
-                raise ValidationError('Wrong username or password')
+                raise ValidationError('Wrong email or password')
 
+            attrs['user'] = user
             return attrs
 
     def post(self, request, format=None):
         serializer = self.InputSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        token = AuthToken.objects.create(user=User.objects.get(username=serializer.data['username']))[1]
+        token = AuthToken.objects.create(user=serializer.validated_data['user'])[1]
         return Response(data=token, status=status.HTTP_200_OK)
 
 

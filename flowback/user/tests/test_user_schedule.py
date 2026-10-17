@@ -54,6 +54,7 @@ class UserScheduleEventCreateAPITest(APITestCase):
         self.assertIsNotNone(event)
         self.assertEqual(event.title, 'Team Meeting')
         self.assertEqual(event.schedule, self.user.schedule)
+        self.assertEqual(event.timezone, 'UTC')
 
     def test_create_event_success_full(self):
         """Test creating a schedule event with all fields"""
@@ -90,6 +91,54 @@ class UserScheduleEventCreateAPITest(APITestCase):
         self.assertEqual(event.schedule, self.user.schedule)
         self.assertEqual(event.meeting_link, 'https://meet.example.com/project-review')
         self.assertEqual(event.repeat_frequency, ScheduleEvent.Frequency.WEEKLY)
+
+    def test_create_event_with_timezone_and_repeat_end_date(self):
+        """Test creating a repeating event that keeps its time in a timezone until a date"""
+        start_date = timezone.now() + timedelta(days=1)
+        end_date = start_date + timedelta(hours=1)
+        repeat_end_date = start_date + timedelta(days=30)
+
+        data = {
+            'title': 'Daily Standup',
+            'start_date': start_date.isoformat(),
+            'end_date': end_date.isoformat(),
+            'repeat_frequency': ScheduleEvent.Frequency.DAILY,
+            'repeat_frequency_end_date': repeat_end_date.isoformat(),
+            'timezone': 'Europe/Stockholm',
+        }
+
+        response = generate_request(
+            api=UserScheduleEventCreateAPI,
+            data=data,
+            user=self.user
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
+
+        event = ScheduleEvent.objects.get(schedule=self.user.schedule, title='Daily Standup')
+        self.assertEqual(event.timezone, 'Europe/Stockholm')
+        self.assertEqual(event.repeat_frequency_end_date, repeat_end_date)
+
+    def test_create_event_with_unknown_timezone(self):
+        """Test that an event can't be created in a timezone that doesn't exist"""
+        start_date = timezone.now() + timedelta(days=1)
+
+        data = {
+            'title': 'Daily Standup',
+            'start_date': start_date.isoformat(),
+            'end_date': (start_date + timedelta(hours=1)).isoformat(),
+            'repeat_frequency': ScheduleEvent.Frequency.DAILY,
+            'timezone': 'Stockholm',
+        }
+
+        response = generate_request(
+            api=UserScheduleEventCreateAPI,
+            data=data,
+            user=self.user
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertFalse(ScheduleEvent.objects.filter(schedule=self.user.schedule, title='Daily Standup').exists())
 
     def test_create_event_with_blank_description(self):
         """Test creating an event with blank description"""
@@ -298,6 +347,27 @@ class UserScheduleEventUpdateAPITest(APITestCase):
         
         self.event.refresh_from_db()
         self.assertEqual(self.event.repeat_frequency, ScheduleEvent.Frequency.DAILY)
+
+    def test_update_event_timezone_and_repeat_end_date(self):
+        """Test updating the timezone and repeat end date of an event"""
+        repeat_end_date = timezone.now() + timedelta(days=60)
+        data = {
+            'event_id': self.event.id,
+            'timezone': 'America/New_York',
+            'repeat_frequency_end_date': repeat_end_date.isoformat()
+        }
+
+        response = generate_request(
+            api=UserScheduleEventUpdateAPI,
+            data=data,
+            user=self.user
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        self.event.refresh_from_db()
+        self.assertEqual(self.event.timezone, 'America/New_York')
+        self.assertEqual(self.event.repeat_frequency_end_date, repeat_end_date)
 
     def test_update_event_multiple_fields(self):
         """Test updating multiple fields at once"""

@@ -1,21 +1,23 @@
 import logging
 import uuid
 
-from django.contrib.contenttypes.models import ContentType
 from django.core.mail import send_mail
+from django.db import IntegrityError, transaction
 from django.db.models import Q, Count, Model
 from django.shortcuts import get_object_or_404
 from django.contrib.auth.password_validation import validate_password
 from django.utils import timezone
 
-from rest_framework.exceptions import ValidationError
+from rest_framework.exceptions import NotFound, ValidationError
 
 from backend.settings import DEFAULT_FROM_EMAIL, URL_USER_CREATE, URL_USER_FORGOT_PASSWORD, EMAIL_HOST
 from flowback.chat.models import MessageChannel, MessageChannelParticipant
 from flowback.chat.services import message_channel_create, message_channel_join, send_channel_info_message
 from flowback.common.services import model_update, get_object
+from flowback.group.models import GroupThread
 from flowback.kanban.services import KanbanManager
 from flowback.notification.models import NotificationChannel
+from flowback.poll.models import Poll
 from flowback.schedule.services import schedule_event_create, schedule_event_update, schedule_event_delete
 from flowback.user.models import User, OnboardUser, PasswordReset, Report, UserChatInvite, UserBookmark
 
@@ -368,21 +370,36 @@ def user_schedule_event_delete(user: User, **data):
     return schedule_event_delete(**data)
 
 
-def user_bookmark_create(*, user_id: int, object_id: int, content_type: str | Model):
-    if isinstance(content_type, Model):
-        content_type = content_type.objects.get(id=object_id)
-
-    if isinstance(content_type, str):
-        content_type = ContentType.objects.get(model=content_type.lower())
-
-    return UserBookmark.objects.create(user_id=user_id, content_type=content_type, object_id=object_id)
+# Maps the content_type clients send to the model and the UserBookmark field that points at it
+BOOKMARK_TARGETS = {'poll': (Poll, 'poll'),
+                    'groupthread': (GroupThread, 'thread')}
 
 
-def user_bookmark_delete(*, user_id: int, object_id: int, content_type: str | Model):
-    if isinstance(content_type, Model):
-        content_type = content_type.objects.get(id=object_id)
+def _user_bookmark_target(content_type: str) -> tuple[type[Model], str]:
+    try:
+        return BOOKMARK_TARGETS[content_type.lower()]
 
-    if isinstance(content_type, str):
-        content_type = ContentType.objects.get(model=content_type.lower())
+    except KeyError:
+        raise ValidationError(f'content_type must be one of: {", ".join(BOOKMARK_TARGETS)}')
 
-    UserBookmark.objects.get(user_id=user_id, content_type=content_type, object_id=object_id).delete()
+
+def user_bookmark_create(*, user_id: int, object_id: int, content_type: str) -> UserBookmark:
+    model, field = _user_bookmark_target(content_type)
+
+    if not model.objects.filter(id=object_id, active=True).exists():
+        raise NotFound(f'{content_type} with id {object_id} does not exist')
+
+    try:
+        with transaction.atomic():
+            return UserBookmark.objects.create(user_id=user_id, **{f'{field}_id': object_id})
+
+    except IntegrityError:
+        raise ValidationError('Already bookmarked')
+
+
+def user_bookmark_delete(*, user_id: int, object_id: int, content_type: str):
+    _, field = _user_bookmark_target(content_type)
+
+    deleted_count = UserBookmark.objects.filter(user_id=user_id, **{f'{field}_id': object_id}).delete()[0]
+    if not deleted_count:
+        raise NotFound('Bookmark does not exist')

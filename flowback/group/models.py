@@ -15,7 +15,8 @@ from flowback.common.models import BaseModel
 from flowback.common.validators import FieldNotBlankValidator
 from flowback.files.models import FileCollection
 from flowback.kanban.models import Kanban, KanbanSubscription
-from flowback.notification.models import NotifiableModel, NotificationChannel
+from flowback.notification.models import (NotifiableModel, NotificationChannel, NotificationSubscription,
+                                          NotificationSubscriptionTag)
 from flowback.schedule.models import ScheduleModel
 from flowback.user.models import User
 from django.db import models
@@ -185,6 +186,23 @@ class Group(BaseModel, NotifiableModel, ScheduleModel):
 
         return self.notification_channel.notify(**params)
 
+    def notify_join_request(self, *,
+                            message: str,
+                            action: NotificationChannel.Action,
+                            requester_id: int,
+                            requester_username: str,
+                            subscription_filters: dict = None):
+        """Notifies group admins about new join requests"""
+        params = locals()
+        params.pop('self')
+
+        return self.notification_channel.notify(**params)
+
+    def subscribe_join_request(self, user: User):
+        """Subscribes the user to join request notifications, keeping any other tags they're subscribed to"""
+        subscription, _ = NotificationSubscription.objects.get_or_create(user=user, channel=self.notification_channel)
+        NotificationSubscriptionTag.objects.get_or_create(subscription=subscription, name='join_request')
+
     # Signals
     @classmethod
     def pre_save(cls, instance, raw, using, update_fields, *args, **kwargs):
@@ -276,7 +294,7 @@ class GroupUser(BaseModel):
     user = models.ForeignKey(User, on_delete=models.CASCADE)
     group = models.ForeignKey(Group, on_delete=models.CASCADE)
     is_admin = models.BooleanField(default=False)
-    permission = models.ForeignKey(GroupPermissions, on_delete=models.SET_NULL, null=True)
+    permission = models.ForeignKey(GroupPermissions, on_delete=models.SET_NULL, null=True, blank=True)
     chat_participant = models.ForeignKey(MessageChannelParticipant, on_delete=models.PROTECT)
     active = models.BooleanField(default=True)
 
@@ -317,6 +335,10 @@ class GroupUser(BaseModel):
 
     @classmethod
     def post_save(cls, instance, created, update_fields, *args, **kwargs):
+        # Admins get join request notifications by default
+        if instance.is_admin and (created or (update_fields and 'is_admin' in update_fields)):
+            instance.group.subscribe_join_request(instance.user)
+
         if created:
             instance.group.schedule.add_user(user=instance.user)
             subscription = KanbanSubscription(kanban_id=instance.user.kanban_id, target_id=instance.group.kanban_id)
@@ -454,6 +476,9 @@ class GroupThread(BaseModel, NotifiableModel):
     pinned = models.BooleanField(default=False)
     comment_section = models.ForeignKey(CommentSection, default=comment_section_create, on_delete=models.DO_NOTHING)
     active = models.BooleanField(default=True)
+
+    # Archived threads stay readable but are hidden from lists unless explicitly requested
+    is_archived = models.BooleanField(default=False)
     attachments = models.ForeignKey(FileCollection, on_delete=models.CASCADE, null=True, blank=True)
     work_group = models.ForeignKey(WorkGroup, on_delete=models.SET_NULL, null=True, blank=True)
     public = models.BooleanField(default=False)

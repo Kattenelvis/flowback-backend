@@ -2,6 +2,7 @@ import os
 import sys
 
 import environ
+from datetime import timedelta
 from pathlib import Path
 
 VERSION = "1.0.0"
@@ -173,6 +174,14 @@ REST_FRAMEWORK = {
         env('FLOWBACK_DEFAULT_PERMISSION'),
     ),
     'EXCEPTION_HANDLER': 'flowback.common.exception_handlers.drf_default_with_modifications_exception_handler'
+}
+
+# These match django-rest-knox's defaults, spelled out so the token lifetime is a visible decision.
+# The frontend's "Remain logged in" only affects the client side; the token itself expires after TOKEN_TTL.
+REST_KNOX = {
+    'TOKEN_TTL': timedelta(hours=10),
+    'AUTO_REFRESH': False,
+    'TOKEN_LIMIT_PER_USER': None,
 }
 
 SPECTACULAR_SETTINGS = {

@@ -3,6 +3,7 @@ from rest_framework.exceptions import ValidationError
 from backend.settings import FLOWBACK_POLL_VERSION_LOCK
 from flowback.common.services import get_object, model_update
 from flowback.files.services import upload_collection
+from flowback.group.models import GroupUser
 from flowback.group.notify import notify_group_poll
 from flowback.notification.models import NotificationChannel
 from flowback.poll.models import Poll
@@ -126,6 +127,20 @@ def poll_update(*, user_id: int, poll_id: int, data) -> Poll:
                 message="Poll has been updated")
 
     return poll
+
+
+def poll_can_delete(*, user: User, poll: Poll) -> bool:
+    """Mirrors the rules enforced by poll_delete"""
+    try:
+        group_user = group_user_permissions(user=user, group=poll.created_by.group)
+
+    except GroupUser.DoesNotExist:
+        return False
+
+    if group_user_permissions(group_user=group_user, permissions=['admin', 'force_delete_poll'], raise_exception=False):
+        return True
+
+    return poll.created_by == group_user and poll.current_phase == 'waiting'
 
 
 def poll_delete(*, user_id: int, poll_id: int) -> None:

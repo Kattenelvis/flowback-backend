@@ -6,9 +6,10 @@ This test suite covers:
 - Schedule Event Selectors (schedule_event_list)
 - Schedule Event Services (event subscription services)
 - Schedule Event Serializers (FilterSerializer, InputSerializer, OutputSerializer)
+- Listing the events in a window of time, and paginating them
 """
 
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone as dt_timezone
 from django.utils import timezone
 from rest_framework import status
 from rest_framework.test import APITestCase
@@ -78,6 +79,8 @@ class ScheduleEventAPITest(APITestCase):
         self.assertIn('active', result)
         self.assertIn('meeting_link', result)
         self.assertIn('repeat_frequency', result)
+        self.assertIn('repeat_frequency_end_date', result)
+        self.assertIn('timezone', result)
         self.assertIn('tag_id', result)
         self.assertIn('tag_name', result)
         self.assertIn('origin_name', result)
@@ -370,12 +373,14 @@ class ScheduleEventSelectorTest(APITestCase):
         self.assertEqual(list(events.values_list('id', flat=True)), [e1.id])
 
     def test_schedule_event_tag_subscription_list(self):
-        data = dict(schedule_user=self.schedule_user1,
-                    schedule_tag_id=self.tag1.id,
+        data = dict(schedule_tag_id=self.tag1.id,
                     reminders=[300, 1500, 36000])
-        ScheduleTagSubscriptionFactory(**data)
 
-        data.pop('schedule_user')
+        # Pass the tag itself, otherwise the factory creates an extra tag with a random name
+        # that can collide with an existing tag name in the schedule
+        ScheduleTagSubscriptionFactory(schedule_user=self.schedule_user1,
+                                       schedule_tag=self.tag1,
+                                       reminders=data['reminders'])
 
         response = generate_request(api=ScheduleTagSubscriptionListAPI,
                                     user=self.schedule_user1.user)
@@ -483,7 +488,7 @@ class ScheduleEventSerializerTest(APITestCase):
         # Verify all output fields
         expected_fields = ['id', 'schedule_id', 'title', 'description', 'start_date',
                            'end_date', 'active', 'meeting_link', 'repeat_frequency',
-                           'tag_id', 'tag_name', 'origin_name', 'origin_id',
+                           'repeat_frequency_end_date', 'timezone', 'tag_id', 'tag_name', 'origin_name', 'origin_id',
                            'schedule_origin_name', 'schedule_origin_id', 'assignees',
                            'reminders', 'user_tags', 'locked', 'subscribed']
         for field in expected_fields:
@@ -509,3 +514,92 @@ class ScheduleEventSerializerTest(APITestCase):
             user=self.user1
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+
+class ScheduleEventWindowTest(APITestCase):
+    """Test listing the events in a window of time, and paginating them"""
+
+    WINDOW_START = datetime(2026, 11, 1, tzinfo=dt_timezone.utc)
+    WINDOW_END = datetime(2026, 12, 1, tzinfo=dt_timezone.utc)
+
+    def setUp(self):
+        self.user = UserFactory.create()
+        self.group = GroupFactory.create()
+        ScheduleUserFactory.create(user=self.user, schedule=self.group.schedule)
+        self.tag = ScheduleTagFactory.create(schedule=self.group.schedule, name='meeting')
+
+    def create_event(self, title: str, start: datetime, end: datetime | None = None, **kwargs):
+        return ScheduleEventFactory.create(schedule=self.group.schedule,
+                                           tag=self.tag,
+                                           title=title,
+                                           start_date=start,
+                                           end_date=end or start + timedelta(hours=1),
+                                           **kwargs)
+
+    def window_titles(self) -> set[str]:
+        events = schedule_event_list(user=self.user,
+                                     filters={'window_start': self.WINDOW_START, 'window_end': self.WINDOW_END})
+        return set(events.values_list('title', flat=True))
+
+    def test_window_has_the_events_that_overlap_it(self):
+        day = lambda month, day, hour=12: datetime(2026, month, day, hour, tzinfo=dt_timezone.utc)
+
+        self.create_event('inside', day(11, 10))
+        self.create_event('before', day(10, 10))
+        self.create_event('after', day(12, 5))
+        self.create_event('ends inside', day(10, 31, 22), day(11, 1, 2))
+        self.create_event('starts when the window ends', day(12, 1, 0))
+        self.assertEqual(self.window_titles(), {'inside', 'ends inside'})
+
+    def test_window_has_the_events_without_an_end_that_start_in_it(self):
+        day = lambda month, day: datetime(2026, month, day, 12, tzinfo=dt_timezone.utc)
+
+        self.create_event('inside', day(11, 20))
+        self.create_event('before', day(10, 20))
+        ScheduleEvent.objects.update(end_date=None)
+        self.assertEqual(self.window_titles(), {'inside'})
+
+    def test_window_has_the_repeating_events_that_have_not_stopped_repeating(self):
+        day = lambda month, day: datetime(2026, month, day, 12, tzinfo=dt_timezone.utc)
+        daily, weekly = ScheduleEvent.Frequency.DAILY, ScheduleEvent.Frequency.WEEKLY
+
+        self.create_event('started before and goes on', day(9, 1), repeat_frequency=daily)
+        self.create_event('stopped before', day(9, 1), repeat_frequency=weekly,
+                          repeat_frequency_end_date=day(10, 15))
+        self.create_event('stops inside', day(9, 1), repeat_frequency=weekly,
+                          repeat_frequency_end_date=day(11, 15))
+        self.create_event('starts after', day(12, 10), repeat_frequency=daily)
+        self.assertEqual(self.window_titles(), {'started before and goes on', 'stops inside'})
+
+    def test_window_in_the_api(self):
+        self.create_event('inside', datetime(2026, 11, 10, 12, tzinfo=dt_timezone.utc))
+        self.create_event('before', datetime(2026, 10, 10, 12, tzinfo=dt_timezone.utc))
+
+        response = generate_request(api=ScheduleEventListAPI,
+                                    data={'window_start': self.WINDOW_START.isoformat(),
+                                          'window_end': self.WINDOW_END.isoformat()},
+                                    user=self.user)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual([e['title'] for e in response.data['results']], ['inside'])
+
+    def test_events_are_ordered_by_start_date_by_default(self):
+        for i, day in enumerate((20, 5, 12)):
+            self.create_event(f'event {i}', datetime(2026, 11, day, 12, tzinfo=dt_timezone.utc))
+
+        response = generate_request(api=ScheduleEventListAPI, user=self.user)
+
+        self.assertEqual([e['title'] for e in response.data['results']], ['event 1', 'event 2', 'event 0'])
+
+    def test_pages_do_not_overlap_when_events_start_at_the_same_time(self):
+        start = datetime(2026, 11, 10, 12, tzinfo=dt_timezone.utc)
+        ids = [self.create_event(f'event {i}', start).id for i in range(7)]
+
+        paged = []
+        for offset in range(0, 7, 3):
+            response = generate_request(api=ScheduleEventListAPI,
+                                        data={'limit': 3, 'offset': offset},
+                                        user=self.user)
+            paged += [e['id'] for e in response.data['results']]
+
+        self.assertEqual(paged, ids)

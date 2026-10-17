@@ -6,9 +6,9 @@ from flowback.comment.models import Comment
 from flowback.comment.selectors import comment_list, comment_ancestor_list
 from flowback.common.filters import NumberInFilter
 from flowback.common.services import get_object
-from flowback.group.models import GroupThread, GroupThreadVote, Group
+from flowback.group.models import GroupThread, GroupThreadVote, Group, GroupUser
 from flowback.group.selectors.permission import group_user_permissions
-from flowback.user.models import User
+from flowback.user.models import User, UserBookmark
 
 
 class BaseGroupThreadFilter(django_filters.FilterSet):
@@ -20,6 +20,7 @@ class BaseGroupThreadFilter(django_filters.FilterSet):
     id_list = NumberInFilter(field_name='id')
     group_ids = NumberInFilter(field_name='created_by__group_id')
     work_group_ids = NumberInFilter(field_name='work_group_id')
+    is_archived = django_filters.BooleanFilter()
 
     class Meta:
         model = GroupThread
@@ -31,6 +32,10 @@ class BaseGroupThreadFilter(django_filters.FilterSet):
 def group_thread_list(*, fetched_by: User, filters=None):
     filters = filters or {}
 
+    # Archived threads are hidden unless requested, or looked up directly by id
+    if filters.get('is_archived') is None and not filters.get('id') and not filters.get('id_list'):
+        filters = {**filters, 'is_archived': False}
+
     threads = GroupThread.objects.filter(
         Q(Q(work_group__isnull=True)  # All threads without workgroup
           | Q(work_group__isnull=False) & Q(  # All threads with workgroup
@@ -39,7 +44,7 @@ def group_thread_list(*, fetched_by: User, filters=None):
             created_by__group__groupuser__is_admin=True)))  # Check if groupuser is admin in group
     ).values('id')
 
-    threads = GroupThread.objects.filter(id__in=[t['id'] for t in threads])  # TODO make this one query
+    threads = GroupThread.objects.filter(id__in=[t['id'] for t in threads], active=True)  # TODO make this one query
 
     comment_qs = Coalesce(Subquery(
         Comment.objects.filter(comment_section_id=OuterRef('comment_section_id'), active=True).values(
@@ -69,7 +74,22 @@ def group_thread_list(*, fetched_by: User, filters=None):
 
     joined_groups_qs = Group.objects.filter(groupuser__active=True, id=OuterRef('created_by__group_id'), groupuser__user__in=[fetched_by])
 
+    # Mirrors group_thread_delete: the author, group admins and the group creator may delete
+    if fetched_by.is_superuser:
+        can_delete = models.Value(True, output_field=models.BooleanField())
+    else:
+        can_delete = Exists(GroupUser.objects.filter(Q(id=OuterRef('created_by_id'))
+                                                     | Q(is_admin=True)
+                                                     | Q(group__created_by=fetched_by),
+                                                     group_id=OuterRef('created_by__group_id'),
+                                                     user=fetched_by,
+                                                     active=True))
+
+    bookmarked_qs = UserBookmark.objects.filter(user=fetched_by, thread=OuterRef('id'))
+
     qs = threads.annotate(total_comments=comment_qs,
+                          can_delete=can_delete,
+                          bookmarked=Exists(bookmarked_qs),
                           group_joined=Exists(joined_groups_qs),
                           user_vote=Subquery(user_vote_qs),
                           score=Coalesce(Subquery(positive_votes_qs,

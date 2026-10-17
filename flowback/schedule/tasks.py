@@ -15,17 +15,14 @@ def event_notify(event_id: int):
     # Stop notifying if event is removed
     if not event or not event.repeat_frequency:
         PeriodicTask.objects.filter(name=f"schedule_event_{event_id}").delete()
+        return
 
     # Skip notify if scheduled at a later date
     if event.start_date > timezone.now():
         return
 
-    task = PeriodicTask.objects.filter(name=f"schedule_event_{event_id}")
+    # Followers of a single occurrence are done once it has been held
+    event.scheduleeventsubscription_set.filter(occurrence_start__lt=timezone.now()).delete()
 
-    # Skip regenerating notifications if the event is about to expire
-    if (event.repeat_frequency_end_date
-            and task.crontab.schedule.is_due(timezone.now()) < event.repeat_frequency_end_date):
-        return
-
-    else:
-        event.regenerate_notifications()
+    # Past the repeat end date there is no next occurrence, which leaves no notifications to create
+    event.regenerate_notifications()

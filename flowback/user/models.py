@@ -2,8 +2,6 @@ import uuid
 
 from django.contrib.auth.base_user import BaseUserManager
 from django.contrib.auth.validators import UnicodeUsernameValidator
-from django.contrib.contenttypes.fields import GenericForeignKey
-from django.contrib.contenttypes.models import ContentType
 from django.db import models
 from django.contrib.auth.models import AbstractBaseUser, PermissionsMixin
 from django.db.models.signals import post_save, post_delete
@@ -13,7 +11,7 @@ from django.utils.translation import gettext_lazy as _
 
 from flowback.chat.models import MessageChannelParticipant
 from flowback.common.models import BaseModel
-from flowback.common.validators import FieldNotBlankValidator
+from flowback.common.validators import FieldNotBlankValidator, FieldNoInvisibleCharactersValidator
 from flowback.kanban.models import Kanban
 from flowback.notification.models import NotifiableModel, NotificationChannel
 from flowback.schedule.models import ScheduleModel
@@ -61,7 +59,7 @@ class User(AbstractBaseUser, PermissionsMixin, NotifiableModel, ScheduleModel):
     is_staff = models.BooleanField(default=False)
     is_active = models.BooleanField(default=True)
 
-    username = models.CharField(max_length=50, validators=[UnicodeUsernameValidator(), FieldNotBlankValidator], unique=True)
+    username = models.CharField(max_length=50, validators=[UnicodeUsernameValidator(), FieldNotBlankValidator, FieldNoInvisibleCharactersValidator], unique=True)
     profile_image = models.ImageField(null=True, blank=True, upload_to='user/profile_image')
     banner_image = models.ImageField(null=True, blank=True, upload_to='user/banner_image')
     email_notifications = models.BooleanField(default=False)
@@ -147,12 +145,22 @@ post_delete.connect(User.post_delete, sender=User)
 
 class UserBookmark(BaseModel):
     user = models.ForeignKey(User, on_delete=models.CASCADE)
-    content_type = models.ForeignKey(ContentType, on_delete=models.CASCADE)
-    object_id = models.PositiveIntegerField()
-    content_object = GenericForeignKey('content_type', 'object_id')
+
+    # Exactly one of these is set. Add a column (and extend the constraints below) per new bookmarkable model
+    poll = models.ForeignKey('poll.Poll', null=True, blank=True, on_delete=models.CASCADE)
+    thread = models.ForeignKey('group.GroupThread', null=True, blank=True, on_delete=models.CASCADE)
 
     class Meta:
-        constraints = [models.UniqueConstraint(fields=['user', 'content_type', 'object_id'], name='unique_bookmark')]
+        constraints = [
+            models.CheckConstraint(check=(models.Q(poll__isnull=False, thread__isnull=True)
+                                          | models.Q(poll__isnull=True, thread__isnull=False)),
+                                   name='bookmark_exactly_one_target'),
+            models.UniqueConstraint(fields=['user', 'poll'],
+                                    condition=models.Q(poll__isnull=False),
+                                    name='unique_poll_bookmark'),
+            models.UniqueConstraint(fields=['user', 'thread'],
+                                    condition=models.Q(thread__isnull=False),
+                                    name='unique_thread_bookmark')]
 
 
 class OnboardUser(BaseModel):

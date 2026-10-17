@@ -54,6 +54,9 @@ class Poll(BaseModel, NotifiableModel):
     # Determines the visibility of this poll
     active = models.BooleanField(default=True)
 
+    # Archived polls stay readable but are hidden from lists unless explicitly requested
+    is_archived = models.BooleanField(default=False)
+
     # Determines if poll is visible outside of group
     public = models.BooleanField(default=False)
     allow_fast_forward = models.BooleanField(default=False)

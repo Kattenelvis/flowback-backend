@@ -15,7 +15,7 @@ from flowback.poll.selectors.poll import poll_list, poll_phase_template_list
 from flowback.poll.selectors.proposal import poll_user_schedule_list
 from flowback.poll.selectors.vote import poll_delegates_list
 
-from flowback.poll.services.poll import (poll_create, poll_update, poll_delete, poll_fast_forward,
+from flowback.poll.services.poll import (poll_can_delete, poll_create, poll_update, poll_delete, poll_fast_forward,
                                          poll_phase_template_create, poll_phase_template_update,
                                          poll_phase_template_delete, poll_notification_subscribe)
 
@@ -45,6 +45,7 @@ class PollListApi(APIView):
         status = serializers.IntegerField(required=False)
         phase = serializers.CharField(required=False)
         work_group_ids = serializers.CharField(required=False)
+        is_archived = serializers.BooleanField(required=False, default=None, allow_null=True)
 
         # Blob of gt and lt filter fields
         start_date__gt = serializers.DateTimeField(required=False)
@@ -79,6 +80,7 @@ class PollListApi(APIView):
         hide_poll_users = serializers.BooleanField(source='created_by.group.hide_poll_users')
         winning_proposal_id = serializers.IntegerField(source='result.id', allow_null=True)
         total_comments = serializers.IntegerField()
+        bookmarked = serializers.BooleanField()
         total_proposals = serializers.IntegerField()
         total_predictions = serializers.IntegerField()
         work_group_id = serializers.IntegerField(allow_null=True)
@@ -92,6 +94,10 @@ class PollListApi(APIView):
         vote_end_date = serializers.DateTimeField(required=False)
         end_date = serializers.DateTimeField(required=False)
         phase = serializers.CharField()
+        can_delete = serializers.SerializerMethodField()
+
+        def get_can_delete(self, poll) -> bool:
+            return poll_can_delete(user=self.context['user'], poll=poll)
 
         class Meta:
             model = Poll
@@ -124,6 +130,7 @@ class PollListApi(APIView):
                       'pinned',
                       'dynamic',
                       'total_comments',
+                      'bookmarked',
                       'total_proposals',
                       'total_predictions',
                       'quorum',
@@ -132,7 +139,9 @@ class PollListApi(APIView):
                       'interval_mean_absolute_correctness',
                       'work_group_id',
                       'work_group_name',
-                      'phase')
+                      'phase',
+                      'is_archived',
+                      'can_delete')
 
     def get(self, request, group_id: int = None):
         filter_serializer = self.FilterSerializer(data=request.query_params)
@@ -145,7 +154,8 @@ class PollListApi(APIView):
             serializer_class=self.OutputSerializer,
             queryset=polls,
             request=request,
-            view=self
+            view=self,
+            serializer_context=dict(user=request.user)
         )
 
 
