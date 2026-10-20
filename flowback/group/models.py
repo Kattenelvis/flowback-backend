@@ -4,7 +4,7 @@ import uuid
 from django.contrib.postgres.fields import ArrayField
 from django.core.validators import MinValueValidator, MaxValueValidator
 from django.db.models import Q
-from django.db.models.signals import post_save, post_delete, pre_save
+from django.db.models.signals import post_save, post_delete, pre_save, pre_delete
 from django.forms import model_to_dict
 from rest_framework.exceptions import ValidationError
 
@@ -15,10 +15,18 @@ from flowback.common.models import BaseModel
 from flowback.common.validators import FieldNotBlankValidator
 from flowback.files.models import FileCollection
 from flowback.kanban.models import Kanban, KanbanSubscription
-from flowback.notification.models import NotifiableModel, NotificationChannel
+from flowback.notification.models import (NotifiableModel, NotificationChannel, NotificationSubscription,
+                                          NotificationSubscriptionTag)
 from flowback.schedule.models import ScheduleModel
 from flowback.user.models import User
 from django.db import models
+
+
+def chat_services():
+    # Imported here rather than at the top: the chat services load filter sets, which need every model to be
+    # registered first
+    from flowback.chat import services
+    return services
 
 
 # Create your models here.
@@ -185,13 +193,28 @@ class Group(BaseModel, NotifiableModel, ScheduleModel):
 
         return self.notification_channel.notify(**params)
 
+    def notify_join_request(self, *,
+                            message: str,
+                            action: NotificationChannel.Action,
+                            requester_id: int,
+                            requester_username: str,
+                            subscription_filters: dict = None):
+        """Notifies group admins about new join requests"""
+        params = locals()
+        params.pop('self')
+
+        return self.notification_channel.notify(**params)
+
+    def subscribe_join_request(self, user: User):
+        """Subscribes the user to join request notifications, keeping any other tags they're subscribed to"""
+        subscription, _ = NotificationSubscription.objects.get_or_create(user=user, channel=self.notification_channel)
+        NotificationSubscriptionTag.objects.get_or_create(subscription=subscription, name='join_request')
+
     # Signals
     @classmethod
     def pre_save(cls, instance, raw, using, update_fields, *args, **kwargs):
         if instance.pk is None:
-            channel = MessageChannel(origin_name='group', title=instance.name)
-            channel.save()
-            instance.chat = channel
+            instance.chat = chat_services().channel_create(kind=MessageChannel.Kind.GROUP, title=instance.name)
 
     @classmethod
     def post_save(cls, instance, created, update_fields, *args, **kwargs):
@@ -220,10 +243,9 @@ class Group(BaseModel, NotifiableModel, ScheduleModel):
                 update_fields = [field.name for field in update_fields]
 
             if 'name' in update_fields:
-                instance.chat.title = instance.name
                 instance.kanban.name = instance.name
                 instance.kanban.save()
-                instance.chat.save()
+                chat_services().channel_set_title(channel=instance.chat, title=instance.name)
 
     @classmethod
     def user_post_save(cls, instance: User, created: bool, *args, **kwargs):
@@ -240,12 +262,17 @@ class Group(BaseModel, NotifiableModel, ScheduleModel):
                     logger.warning(msg="FLOWBACK_DEFAULT_GROUP_JOIN references a group that does not exist")
 
     @classmethod
+    def pre_delete(cls, instance, *args, **kwargs):
+        # Empties the chat before the members are deleted one by one, so they don't each post "left"
+        chat_services().channel_close(channel=instance.chat)
+
+    @classmethod
     def post_delete(cls, instance, *args, **kwargs):
         if instance.kanban:
             instance.kanban.delete()
 
         if instance.chat:
-            instance.chat.delete()
+            chat_services().channel_delete(channel=instance.chat)
 
         if instance.schedule:
             instance.schedule.delete()
@@ -254,6 +281,7 @@ class Group(BaseModel, NotifiableModel, ScheduleModel):
 pre_save.connect(Group.pre_save, sender=Group)
 post_save.connect(Group.post_save, sender=Group)
 post_save.connect(Group.user_post_save, sender=User)
+pre_delete.connect(Group.pre_delete, sender=Group)
 post_delete.connect(Group.post_delete, sender=Group)
 
 
@@ -276,7 +304,7 @@ class GroupUser(BaseModel):
     user = models.ForeignKey(User, on_delete=models.CASCADE)
     group = models.ForeignKey(Group, on_delete=models.CASCADE)
     is_admin = models.BooleanField(default=False)
-    permission = models.ForeignKey(GroupPermissions, on_delete=models.SET_NULL, null=True)
+    permission = models.ForeignKey(GroupPermissions, on_delete=models.SET_NULL, null=True, blank=True)
     chat_participant = models.ForeignKey(MessageChannelParticipant, on_delete=models.PROTECT)
     active = models.BooleanField(default=True)
 
@@ -304,19 +332,15 @@ class GroupUser(BaseModel):
     @classmethod
     def pre_save(cls, instance, raw, using, update_fields, *args, **kwargs):
         if instance.pk is None:
-
-            # Reuse existing participant if user previously left and is rejoining
-            participant, created = MessageChannelParticipant.objects.get_or_create(
-                user=instance.user,
-                channel=instance.group.chat,
-            )
-
-            participant.active = True
-            participant.save()
-            instance.chat_participant = participant
+            instance.chat_participant = chat_services().channel_member_add(channel=instance.group.chat,
+                                                                           user=instance.user)
 
     @classmethod
     def post_save(cls, instance, created, update_fields, *args, **kwargs):
+        # Admins get join request notifications by default
+        if instance.is_admin and (created or (update_fields and 'is_admin' in update_fields)):
+            instance.group.subscribe_join_request(instance.user)
+
         if created:
             instance.group.schedule.add_user(user=instance.user)
             subscription = KanbanSubscription(kanban_id=instance.user.kanban_id, target_id=instance.group.kanban_id)
@@ -325,9 +349,7 @@ class GroupUser(BaseModel):
         elif update_fields and 'active' in update_fields:
             if instance.active:
                 instance.group.schedule.add_user(user=instance.user)
-
-                instance.chat_participant.active = True
-                instance.chat_participant.save(update_fields=['active'])
+                instance.sync_chats()
 
             else:
                 instance.group.schedule.remove_user(user=instance.user)
@@ -335,20 +357,28 @@ class GroupUser(BaseModel):
                 KanbanSubscription.objects.filter(kanban_id=instance.user.kanban_id,
                                                   target_id=instance.group.kanban_id).delete()
 
-                instance.chat_participant.active = False
-                instance.chat_participant.save(update_fields=['active'])
+                instance.sync_chats()
 
                 if instance.group.notification_channel:
                     instance.group.notification_channel.unsubscribe_all(user=instance.user)
+
+    def sync_chats(self):
+        """Puts the user in, or takes them out of, the chats of the group and the work groups they're in."""
+        chats = [self.group.chat] + [work_group_user.work_group.chat for work_group_user
+                                     in self.workgroupuser_set.filter(active=True).select_related('work_group__chat')]
+
+        for chat in chats:
+            if self.active:
+                chat_services().channel_member_add(channel=chat, user=self.user)
+            else:
+                chat_services().channel_member_remove(channel=chat, user=self.user)
 
     @classmethod
     def post_delete(cls, instance, *args, **kwargs):
         KanbanSubscription.objects.filter(kanban_id=instance.user.kanban_id,
                                           target_id=instance.group.kanban_id).delete()
 
-        if instance.chat_participant:
-            instance.chat_participant.active = False
-            instance.chat_participant.save(update_fields=['active'])
+        chat_services().channel_member_remove(channel=instance.chat_participant.channel, user=instance.user)
 
         if instance.group.notification_channel:
             instance.group.notification_channel.unsubscribe_all(user=instance.user)
@@ -376,14 +406,21 @@ class WorkGroup(BaseModel, ScheduleModel):
     @classmethod
     def pre_save(cls, instance, raw, using, update_fields, *args, **kwargs):
         if instance.pk is None:
-            # Joins the chatroom associated with the workgroup
-            message_channel = MessageChannel(origin_name='workgroup', title=instance.name)
-            message_channel.save()
+            instance.chat = chat_services().channel_create(kind=MessageChannel.Kind.WORKGROUP, title=instance.name)
 
-            instance.chat = message_channel
+    @classmethod
+    def pre_delete(cls, instance, *args, **kwargs):
+        # Empties the chat before the members are deleted one by one, so they don't each post "left"
+        chat_services().channel_close(channel=instance.chat)
+
+    @classmethod
+    def post_delete(cls, instance, *args, **kwargs):
+        chat_services().channel_delete(channel=instance.chat)
 
 
 pre_save.connect(WorkGroup.pre_save, sender=WorkGroup)
+pre_delete.connect(WorkGroup.pre_delete, sender=WorkGroup)
+post_delete.connect(WorkGroup.post_delete, sender=WorkGroup)
 
 
 class WorkGroupUser(BaseModel):
@@ -396,18 +433,8 @@ class WorkGroupUser(BaseModel):
     @classmethod
     def pre_save(cls, instance, raw, using, update_fields, *args, **kwargs):
         if instance.pk is None:
-            # Reuse existing participant if user previously left and is rejoining
-            participant, created = MessageChannelParticipant.objects.get_or_create(
-                user=instance.group_user.user,
-                channel=instance.work_group.chat,
-                defaults={'active': True}
-            )
-            if not created:
-                # Joins the chatroom associated with the workgroup
-                participant.active = True
-                participant.save()
-
-            instance.chat_participant = participant
+            instance.chat_participant = chat_services().channel_member_add(channel=instance.work_group.chat,
+                                                                           user=instance.group_user.user)
 
     @classmethod
     def post_save(cls, instance, **kwargs):
@@ -423,8 +450,8 @@ class WorkGroupUser(BaseModel):
 
     @classmethod
     def post_delete(cls, instance, *args, **kwargs):
-        instance.chat_participant.active = False  # Leave chatroom
-        instance.chat_participant.save()
+        chat_services().channel_member_remove(channel=instance.chat_participant.channel,
+                                              user=instance.group_user.user)
         instance.work_group.schedule.remove_user(user=instance.group_user.user)
 
     class Meta:
@@ -454,6 +481,9 @@ class GroupThread(BaseModel, NotifiableModel):
     pinned = models.BooleanField(default=False)
     comment_section = models.ForeignKey(CommentSection, default=comment_section_create, on_delete=models.DO_NOTHING)
     active = models.BooleanField(default=True)
+
+    # Archived threads stay readable but are hidden from lists unless explicitly requested
+    is_archived = models.BooleanField(default=False)
     attachments = models.ForeignKey(FileCollection, on_delete=models.CASCADE, null=True, blank=True)
     work_group = models.ForeignKey(WorkGroup, on_delete=models.SET_NULL, null=True, blank=True)
     public = models.BooleanField(default=False)

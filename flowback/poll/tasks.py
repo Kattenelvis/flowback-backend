@@ -562,6 +562,24 @@ def calculate_combined_bet(
 
 
 @shared_task
+def poll_proposal_archive_check(poll_id: int) -> None:
+    """Archives a poll that left its proposal phase without a single proposal, since it can never be voted on"""
+    poll = Poll.objects.filter(id=poll_id).first()
+
+    if not poll or not poll.active or poll.is_archived or poll.dynamic:
+        return
+
+    if poll.proposal_end_date is None or poll.proposal_end_date > timezone.now():
+        return
+
+    if PollProposal.objects.filter(poll=poll, active=True).exists():
+        return
+
+    poll.is_archived = True
+    poll.save(update_fields=["is_archived"])
+
+
+@shared_task
 def poll_proposal_vote_count(poll_id: int) -> None:
     poll = Poll.objects.get(id=poll_id)
     group = poll.created_by.group

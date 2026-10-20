@@ -222,6 +222,18 @@ class ScorePollType(PollType):
             poll.end_date is not None and poll.end_date <= now
         )
 
+    def schedule_archive_check(self) -> None:
+        poll = self.poll
+        if poll.dynamic or poll.proposal_end_date is None:
+            return
+
+        if poll.proposal_end_date > timezone.now():
+            _tasks.poll_proposal_archive_check.apply_async(
+                kwargs=dict(poll_id=poll.id), eta=poll.proposal_end_date
+            )
+        else:
+            _tasks.poll_proposal_archive_check(poll_id=poll.id)
+
     def schedule_post_create_tasks(self) -> None:
         poll = self.poll
         _tasks.poll_area_vote_count.apply_async(
@@ -235,6 +247,8 @@ class ScorePollType(PollType):
             _tasks.poll_proposal_vote_count.apply_async(
                 kwargs=dict(poll_id=poll.id), eta=poll.vote_end_date
             )
+
+        self.schedule_archive_check()
 
     def schedule_fast_forward_tasks(self) -> None:
         poll = self.poll
@@ -252,6 +266,8 @@ class ScorePollType(PollType):
             )
         else:
             _tasks.poll_prediction_bet_count(poll_id=poll.id)
+
+        self.schedule_archive_check()
 
     def proposal_input_serializer_class(self) -> type[serializers.Serializer]:
         class InputSerializerScore(
@@ -441,6 +457,8 @@ class V2ScorePollType(ScorePollType):
                 kwargs=dict(poll_id=poll.id), eta=poll.end_date
             )
 
+        self.schedule_archive_check()
+
     def schedule_fast_forward_tasks(self) -> None:
         poll = self.poll
         now = timezone.now()
@@ -450,6 +468,8 @@ class V2ScorePollType(ScorePollType):
             )
         else:
             _tasks.poll_kpi_count(poll_id=poll.id)
+
+        self.schedule_archive_check()
 
 
 @register(Poll.PollType.SCHEDULE)

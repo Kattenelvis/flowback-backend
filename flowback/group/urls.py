@@ -32,7 +32,8 @@ from .views.delegate import (GroupUserDelegateListApi,
                              GroupUserDelegatePoolDeleteApi, GroupUserDelegatePoolNotificationSubscribeAPI)
 from .views.kanban import (GroupKanbanEntryCreateAPI,
                            GroupKanbanEntryUpdateAPI,
-                           GroupKanbanEntryDeleteAPI)
+                           GroupKanbanEntryDeleteAPI,
+                           GroupKanbanChangeGroupAPI)
 from .views.schedule import (GroupScheduleEventCreateAPI,
                              GroupScheduleEventUpdateAPI,
                              GroupScheduleEventDeleteAPI,
@@ -140,6 +141,7 @@ group_patterns = [
     path('<int:group_id>/kanban/entry/create', GroupKanbanEntryCreateAPI.as_view(), name='group_kanban_entry_create'),
     path('<int:group_id>/kanban/entry/update', GroupKanbanEntryUpdateAPI.as_view(), name='group_kanban_entry_update'),
     path('<int:group_id>/kanban/entry/delete', GroupKanbanEntryDeleteAPI.as_view(), name='group_kanban_entry_delete'),
+    path('<int:group_id>/kanban/entry/change_group', GroupKanbanChangeGroupAPI.as_view(), name='group_kanban_change_group'),
 
     path('<int:group_id>/schedule/event/create', GroupScheduleEventCreateAPI.as_view(), name='group_schedule_event_create'),
     path('<int:group_id>/schedule/event/update', GroupScheduleEventUpdateAPI.as_view(), name='group_schedule_event_update'),

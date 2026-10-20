@@ -9,7 +9,8 @@ from flowback.group.services.thread import group_thread_comment_create, group_th
 from flowback.group.tests.factories import GroupThreadFactory, GroupUserFactory, GroupThreadVoteFactory, \
     WorkGroupFactory, WorkGroupUserFactory
 from flowback.group.views.thread import GroupThreadVoteUpdateAPI, GroupThreadListAPI, GroupThreadCommentCreateAPI, \
-    GroupThreadCommentDeleteAPI, GroupThreadCreateAPI, GroupThreadUpdateAPI
+    GroupThreadCommentDeleteAPI, GroupThreadCreateAPI, GroupThreadUpdateAPI, GroupThreadDeleteAPI
+from flowback.user.views.home import UserHomeFeedAPI
 from flowback.user.models import User
 
 
@@ -89,6 +90,54 @@ class TestGroupThread(APITestCase):
                                     user=self.group_user.user)
 
         print(response.data)
+
+    def test_delete_requires_author_or_admin(self):
+        thread = GroupThreadFactory(created_by=self.group_user)
+
+        response = generate_request(api=GroupThreadDeleteAPI,
+                                    url_params=dict(thread_id=thread.id),
+                                    user=self.group_user_two.user)
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN, response.data)
+        self.assertTrue(GroupThread.objects.get(id=thread.id).active)
+
+        response = generate_request(api=GroupThreadDeleteAPI,
+                                    url_params=dict(thread_id=thread.id),
+                                    user=self.group_user.user)
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
+        self.assertFalse(GroupThread.objects.get(id=thread.id).active)
+
+    def test_admin_can_delete_others_thread(self):
+        thread = GroupThreadFactory(created_by=self.group_user)
+
+        response = generate_request(api=GroupThreadDeleteAPI,
+                                    url_params=dict(thread_id=thread.id),
+                                    user=self.group_admin.user)
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
+
+    def test_list_can_delete(self):
+        thread = GroupThreadFactory(created_by=self.group_user)
+
+        def can_delete(user):
+            response = generate_request(api=GroupThreadListAPI, data=dict(id=thread.id), user=user)
+            return response.data['results'][0]['can_delete']
+
+        self.assertTrue(can_delete(self.group_user.user))
+        self.assertTrue(can_delete(self.group_admin.user))
+        self.assertFalse(can_delete(self.group_user_two.user))
+
+    def test_deleted_thread_is_hidden(self):
+        thread = GroupThreadFactory(created_by=self.group_user)
+        user = self.group_user_two.user
+
+        generate_request(api=GroupThreadDeleteAPI,
+                         url_params=dict(thread_id=thread.id),
+                         user=self.group_user.user)
+
+        response = generate_request(api=UserHomeFeedAPI, user=user)
+        self.assertNotIn(thread.id, [post['id'] for post in response.data['results'] if post['related_model'] == 'thread'])
+
+        response = generate_request(api=GroupThreadListAPI, user=user)
+        self.assertNotIn(thread.id, [t['id'] for t in response.data['results']])
 
     def test_pin(self):
         thread = GroupThreadFactory(created_by=self.group_admin)

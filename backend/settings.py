@@ -2,6 +2,7 @@ import os
 import sys
 
 import environ
+from datetime import timedelta
 from pathlib import Path
 
 VERSION = "1.0.0"
@@ -47,6 +48,7 @@ env = environ.Env(DEBUG=(bool, True),
                   EMAIL_USE_SSL=(bool, None),
                   EMAIL_TIMEOUT=(int, 30),
                   INTEGRATIONS=(list, []),
+                  FLOWBACK_LEDGER_MODULE=(bool, False),
                   FLOWBACK_SCORE_VOTE_CEILING=(int, 100),
                   FLOWBACK_SCORE_VOTE_FLOOR=(int, 0),
                   FLOWBACK_KANBAN_PRIORITY_LIMIT=(int, 5),
@@ -127,7 +129,11 @@ if env('SECURE_PROXY_SSL_HEADERS'):
     SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
 
 URL_SUBPATH = env('URL_SUBPATH')
-INTEGRATIONS = env('INTEGRATIONS')
+INTEGRATIONS = list(env('INTEGRATIONS'))
+
+LEDGER_MODULE = 'flowback_addon.flowback_ledger_module'
+if env('FLOWBACK_LEDGER_MODULE') and LEDGER_MODULE not in INTEGRATIONS:
+    INTEGRATIONS.append(LEDGER_MODULE)
 
 
 # Application definition
@@ -159,7 +165,7 @@ INSTALLED_APPS = [
     'flowback.server',
     'drf_spectacular',
     'phonenumber_field',
-    ] + env('INTEGRATIONS')
+    ] + INTEGRATIONS
 
 
 CELERY_BROKER_URL = f"redis://{env('FLOWBACK_REDIS_HOST')}:{env('FLOWBACK_REDIS_PORT')}/0"
@@ -173,6 +179,14 @@ REST_FRAMEWORK = {
         env('FLOWBACK_DEFAULT_PERMISSION'),
     ),
     'EXCEPTION_HANDLER': 'flowback.common.exception_handlers.drf_default_with_modifications_exception_handler'
+}
+
+# These match django-rest-knox's defaults, spelled out so the token lifetime is a visible decision.
+# The frontend's "Remain logged in" only affects the client side; the token itself expires after TOKEN_TTL.
+REST_KNOX = {
+    'TOKEN_TTL': timedelta(hours=10),
+    'AUTO_REFRESH': False,
+    'TOKEN_LIMIT_PER_USER': None,
 }
 
 SPECTACULAR_SETTINGS = {

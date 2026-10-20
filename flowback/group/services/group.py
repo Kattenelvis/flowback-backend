@@ -1,6 +1,7 @@
 from typing import Union
 
 from django.core.mail import send_mass_mail
+from django.db.models import Q
 from rest_framework.exceptions import ValidationError
 
 from backend.settings import env, DEFAULT_FROM_EMAIL, FLOWBACK_ALLOW_GROUP_CREATION, FLOWBACK_DEFAULT_GROUP_JOIN
@@ -121,6 +122,16 @@ def group_join(*, user: int, group: int) -> Union[GroupUser, GroupUserInvite]:
         user_status.full_clean()
         user_status.save()
 
+        # Notify admins and anyone allowed to handle invites
+        group.notify_join_request(message=f"{user.username} has requested to join {group.name}",
+                                  action=group.notification_channel.Action.CREATED,
+                                  requester_id=user.id,
+                                  requester_username=user.username,
+                                  subscription_filters=dict(user_id__in=list(
+                                      GroupUser.objects.filter(Q(is_admin=True) | Q(permission__invite_user=True),
+                                                               group=group,
+                                                               active=True).values_list('user_id', flat=True))))
+
     else:
         try:
             user_status = GroupUser.objects.get(user=user, group=group)
@@ -163,6 +174,10 @@ def group_user_update(*, fetched_by: User, group: int, target_user_id: int, data
     return group_user
 
 
+# TODO Enforce the kick_members permission here, it's currently only stored and never checked
+# TODO Add bans: a `banned` flag on GroupUser, a ban/unban service gated on admin or ban_members, and
+#  refusing banned users in group_join and group_invite_accept. Right now a kicked user can rejoin
+#  immediately in direct-join groups.
 def group_user_delete(*, user_id: int, group_id: int, target_user_id: int) -> None:
     if not FLOWBACK_ALLOW_GROUP_CREATION and group_id in FLOWBACK_DEFAULT_GROUP_JOIN:
         raise ValidationError("Can't delete a group user when group creation is disabled and group user is in "
@@ -174,7 +189,9 @@ def group_user_delete(*, user_id: int, group_id: int, target_user_id: int) -> No
     if group_user_to_delete.is_admin:
         raise ValidationError("Can't delete a group user with admin status")
 
-    group_user_to_delete.delete()
+    # Deactivate instead of deleting, since deleting cascades to the user's threads, polls and delegations
+    group_user_to_delete.active = False
+    group_user_to_delete.save(update_fields=['active'])
 
 
 def group_notification_subscribe(*, user: User, group_id: int, **kwargs) -> None:

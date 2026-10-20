@@ -1,5 +1,8 @@
+from django.db import transaction
 from django.utils import timezone
+from rest_framework.exceptions import ValidationError
 
+from flowback.group.models import GroupUser
 from flowback.group.notify import notify_group_kanban
 from flowback.group.selectors.permission import group_user_permissions
 from flowback.kanban.models import KanbanEntry
@@ -113,3 +116,51 @@ def group_kanban_entry_delete(*,
                             action=NotificationChannel.Action.DELETED)
 
     return group_kanban.kanban_entry_delete(origin_id=group_id, entry_id=entry_id)
+
+
+def group_kanban_entry_change_group(*,
+                                    fetched_by_id: int,
+                                    group_id: int,
+                                    target_group_id: int,
+                                    entry_id: int) -> KanbanEntry:
+    """
+    Moves a kanban entry from group_id to target_group_id by deleting it in the former and recreating it in the latter.
+    Work group is dropped, and the assignee is only kept if they are an active member of the target group.
+    """
+    if group_id == target_group_id:
+        raise ValidationError('Target group must differ from the current group')
+
+    entry = KanbanEntry.objects.get(id=entry_id,
+                                    active=True,
+                                    kanban__origin_type='group',
+                                    kanban__origin_id=group_id)
+
+    # Check both sides up front, so a denied target doesn't trigger delete notifications before rolling back
+    group_user_permissions(user=fetched_by_id,
+                           group=group_id,
+                           permissions=['admin', 'delete_kanban_task'],
+                           work_group=entry.work_group_id)
+    group_user_permissions(user=fetched_by_id,
+                           group=target_group_id,
+                           permissions=['admin', 'create_kanban_task'])
+
+    assignee_id = entry.assignee_id
+    if assignee_id and not GroupUser.objects.filter(group_id=target_group_id, user_id=assignee_id, active=True).exists():
+        assignee_id = None
+
+    with transaction.atomic():
+        group_kanban_entry_delete(group_id=group_id, fetched_by_id=fetched_by_id, entry_id=entry_id)
+        new_entry = group_kanban_entry_create(group_id=target_group_id,
+                                              fetched_by_id=fetched_by_id,
+                                              assignee_id=assignee_id,
+                                              title=entry.title,
+                                              description=entry.description,
+                                              priority=entry.priority,
+                                              lane=entry.lane,
+                                              end_date=entry.end_date)
+
+        if entry.attachments_id:
+            new_entry.attachments_id = entry.attachments_id
+            new_entry.save(update_fields=['attachments'])
+
+    return new_entry

@@ -8,6 +8,9 @@ media
 data
 .flowback*
 flowback_addon/*
+!flowback_addon/__init__.py
+!flowback_addon/urls.py
+!flowback_addon/flowback_ledger_module/
 general.log
 static/*
 

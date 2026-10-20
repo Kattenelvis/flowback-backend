@@ -10,8 +10,9 @@ env:
   LINK: http://localhost:8085
   TEST_PASS: TestPassword
   PUBLIC_POLL_VERSION: 2
-  # PR images get their own tag so unmerged code never becomes :latest (which prod pulls)
-  BACKEND_TAG: ${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.number) || 'latest' }}
+  # Only two published tags: pushes to master -> :latest (which prod pulls),
+  # pull requests from dev -> :dev
+  BACKEND_TAG: ${{ github.event_name == 'push' && 'latest' || 'dev' }}
 
 jobs:
   backend-tests:
@@ -37,6 +38,7 @@ jobs:
       FLOWBACK_PSQL_PASSWORD: flowback
       FLOWBACK_PSQL_HOST: localhost
       FLOWBACK_PSQL_PORT: "5432"
+      FLOWBACK_LEDGER_MODULE: "True"
     steps:
       - uses: actions/checkout@v5
       - name: Set up Python ${{ matrix.python-version }}
@@ -87,6 +89,7 @@ jobs:
     env:
       LINK: http://localhost:8085
       TEST_PASS: TestPassword
+      FLOWBACK_LEDGER_MODULE: "TRUE"
     steps:
       - name: Checkout flowback-docker
         uses: actions/checkout@v4
@@ -175,7 +178,7 @@ jobs:
       - name: Run the rest of the tests
         working-directory: flowback-interface-testing
         run:
-          npx playwright test . --project chromium --retries 2 --workers 1 --reporter list
+          npx playwright test . --project chromium --retries 2 --workers 1 --reporter list --max-failures=4
           --grep-invert "Smoke-Test|missing-requirements"
 
       - name: Dump docker logs on failure
@@ -193,8 +196,9 @@ jobs:
   docker-publish:
     needs: frontend-tests
     permissions: {}
+    # Publish from master pushes and from PRs from dev; other PRs are only tested.
     # Fork PRs get no secrets, so skip publishing instead of failing
-    if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository
+    if: github.event_name == 'push' || (github.head_ref == 'dev' && github.event.pull_request.head.repo.full_name == github.repository)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4
@@ -217,6 +221,8 @@ jobs:
   publish-dev:
     needs: docker-publish
     permissions: {}
+    # The dev server runs the :dev image published from PRs from dev
+    if: ${{ github.event_name == 'pull_request' }}
     timeout-minutes: 10
     runs-on: ubuntu-latest
     steps:
@@ -230,14 +236,14 @@ jobs:
           # The SSH user can't read the checkout; run the deploy as flowback
           script: |
             cd /home/flowback/dev-flowback
-            export BACKEND_TAG=${{ env.BACKEND_TAG }}
+            export FRONTEND_TAG=dev BACKEND_TAG=dev
             docker compose up -d --pull always
 
   # Production publishes only from master pushes.
   publish-prod:
-    needs: publish-dev
+    needs: docker-publish
     permissions: {}
-    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/master' }}
+    if: ${{ github.event_name == 'push' }}
     timeout-minutes: 10
     runs-on: ubuntu-latest
     environment: production

@@ -73,8 +73,11 @@ def group_thread_update(user_id: int, thread_id: int, data: dict):
 
 
 def group_thread_delete(user_id: int, thread_id: int):
-    thread = GroupThread.objects.get(id=thread_id, active=True)
-    group_user_permissions(user=user_id, group=thread.created_by.group)
+    thread = get_object(GroupThread, id=thread_id, active=True)
+    group_user = group_user_permissions(user=user_id, group=thread.created_by.group)
+
+    if thread.created_by != group_user:
+        group_user_permissions(group_user=group_user, permissions=['admin'])
 
     thread.active = False
     thread.save()

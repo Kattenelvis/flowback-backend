@@ -1,299 +1,149 @@
-import json
-from json import JSONDecodeError
-from typing import Union
+"""The chat websocket.
 
+Clients send {"method": ..., ...} and receive {"type": ..., ...} events:
+
+    message_create   {channel_id, message, client_id?, parent_id?, topic_id?, attachments_id?}
+    message_update   {message_id, message}
+    message_delete   {message_id}
+
+    message.created  {channel_id, message, client_id?}
+    message.updated  {channel_id, message}
+    message.deleted  {channel_id, message_id}
+    channel.added    {channel}       Joined, or invited to, a chat
+    channel.updated  {channel_id, title, member_count}
+    channel.removed  {channel_id}    Left, declined, removed, or the chat was deleted
+    channel.read     {channel_id}    Read in another tab
+    error            {method, detail, client_id?}
+
+Everything except errors is sent by flowback.chat.realtime, so actions taken over HTTP reach
+clients the same way as ones taken here.
+"""
+import json
+import logging
+
+from django.core.exceptions import ValidationError as DjangoValidationError
 from channels.db import database_sync_to_async
-from channels.generic.websocket import AsyncWebsocketConsumer
+from channels.generic.websocket import AsyncJsonWebsocketConsumer
 from rest_framework import serializers
 from rest_framework.exceptions import ValidationError
 
+from flowback.chat import realtime
 from flowback.chat.models import MessageChannelParticipant
-from flowback.chat.serializers import MessageSerializer
 from flowback.chat.services import message_create, message_update, message_delete
 
+logger = logging.getLogger(__name__)
 
-class ChatConsumer(AsyncWebsocketConsumer):
 
-    # The function responsible for establishing connections between the end user and the server
+class MessageCreateSerializer(serializers.Serializer):
+    channel_id = serializers.IntegerField()
+    message = serializers.CharField(max_length=2000)
+    client_id = serializers.CharField(required=False, allow_null=True, max_length=64)
+    attachments_id = serializers.IntegerField(required=False)
+    parent_id = serializers.IntegerField(required=False)
+    topic_id = serializers.IntegerField(required=False)
+
+
+class MessageUpdateSerializer(serializers.Serializer):
+    message_id = serializers.IntegerField()
+    message = serializers.CharField(max_length=2000)
+
+
+class MessageDeleteSerializer(serializers.Serializer):
+    message_id = serializers.IntegerField()
+
+
+METHODS = {
+    'message_create': (MessageCreateSerializer, message_create),
+    'message_update': (MessageUpdateSerializer, message_update),
+    'message_delete': (MessageDeleteSerializer, message_delete),
+}
+
+
+class ChatConsumer(AsyncJsonWebsocketConsumer):
+
     async def connect(self):
         self.user = self.scope['user']
 
-        if self.scope['user'].is_anonymous:
+        if self.user.is_anonymous:
             return await self.close()
 
-        # Assign user to their channels
-        self.user_channel = f"user_{self.user.id}"
-        self.participating_channels = await self.get_participating_channels()
-        self.participating_channels.append(self.user_channel)
-        for channel in self.participating_channels:
-            await self.channel_layer.group_add(
-                f"{channel}",
-                self.channel_name
-            )
+        # Join the personal group first: membership changes made while the chats are being looked up then
+        # queue a (un)subscribe that's handled once connect() finishes, instead of being missed
+        user_group = realtime.user_group_name(self.user.id)
+        await self.channel_layer.group_add(user_group, self.channel_name)
+        self.groups_joined = {user_group}
+
+        for channel_id in await self.get_active_channel_ids():
+            group = realtime.channel_group_name(channel_id)
+            self.groups_joined.add(group)
+            await self.channel_layer.group_add(group, self.channel_name)
 
         await self.accept()
 
     async def disconnect(self, close_code):
-        if self.scope['user'].is_anonymous:
-            return await self.close()
-
-        # Disconnect from channels
-        for channel in self.participating_channels:
-            await self.channel_layer.group_discard(
-                f"{channel}",
-                self.channel_name)
-
-    # Receive message from WebSocket
-    async def receive(self, text_data):
-        try:
-            data = json.loads(text_data or '{}')
-
-        except JSONDecodeError as e:
-            return await self.send_error_message(method="JSONDecodeError",
-                                                 detail="Wrong Format")
-
-        # Message endpoints
-        if data.get('method') == 'message_create':
-            await self.message_create(data=data)
-
-        elif data.get('method') == 'message_update':
-            await self.message_update(data=data)
-
-        elif data.get('method') == 'message_delete':
-            await self.message_delete(data=data)
-
-        elif data.get('method') == 'message_notify':
-            await self.message_notify(data=data)
-
-        elif data.get('method') == 'connect_channel':
-            await self.connect_channel(data=data)
-
-        elif data.get('method') == 'disconnect_channel':
-            await self.connect_channel(data=data, disconnect=True)
-
-        elif method := data.get('method'):
-            return await self.send_error_message(method="UnknownMethod",
-                                                 detail=f"Unknown 'method' key in request (got '{method}')")
-
-        elif data.get('method') is None:
-            return await self.send_error_message(method="MissingMethod",
-                                                 detail="Missing 'method' key in request")
-
-        return True
-
-    # Messages passes here before being sent
-    async def message(self, content: dict):
-        await self.send(text_data=json.dumps(content))
-
-    # Same as above, but exclusively for automated info messages
-    async def info(self, content: dict):
-        await self.send(text_data=json.dumps(content))
+        for group in getattr(self, 'groups_joined', set()):
+            await self.channel_layer.group_discard(group, self.channel_name)
 
     @database_sync_to_async
-    def get_participating_channels(self):
+    def get_active_channel_ids(self) -> list[int]:
         return list(MessageChannelParticipant.objects.filter(user=self.user,
-                                                             active=True).values_list('channel_id',
-                                                                                      flat=True))
+                                                             status=MessageChannelParticipant.Status.ACTIVE)
+                    .values_list('channel_id', flat=True))
 
-    @staticmethod
-    def generate_status_message(message: str, method: str = None, **kwargs):
-        return dict(type="message",
-                    method=method,
-                    message=message,
-                    **kwargs)
-
-    # Validation for message, additionally sends an error to the user if it fails
-    async def validate_serializer(self, *, serializer, method: str, data: dict) -> Union[dict, bool]:
+    @classmethod
+    async def decode_json(cls, text_data):
         try:
-            serializer = serializer(data=data)
+            return json.loads(text_data or '{}')
+        except json.JSONDecodeError:
+            return None
+
+    async def receive_json(self, content, **kwargs):
+        if not isinstance(content, dict):
+            return await self.send_error(method=None, detail="Messages must be JSON objects")
+
+        method = content.get('method')
+        if method not in METHODS:
+            return await self.send_error(method=method, detail=f"Unknown method '{method}'")
+
+        serializer_class, service = METHODS[method]
+        try:
+            serializer = serializer_class(data=content)
             serializer.is_valid(raise_exception=True)
-            return serializer.validated_data
+            await database_sync_to_async(service)(user_id=self.user.id, **serializer.validated_data)
 
         except ValidationError as e:
-            message = self.generate_status_message(message_id=data.get('message_id'),
-                                                   message=json.dumps(e.detail),
-                                                   method=method,
-                                                   status="error")
+            await self.send_error(method=method, detail=e.detail, client_id=content.get('client_id'))
 
-            await self.send_message(channel_id=self.user_channel, message=message)
-            return False
+        except DjangoValidationError as e:
+            await self.send_error(method=method, detail=e.messages, client_id=content.get('client_id'))
 
-    async def send_error_message(self, *, detail: Union[dict, str], method: str, **extra) -> None:
-        message = self.generate_status_message(message=json.dumps(detail) if isinstance(detail, dict) else detail,
-                                               message_is_json=True if isinstance(detail, dict) else False,
-                                               method=method,
-                                               status="error",
-                                               **extra)
+        except Exception:  # Keep the socket open; the client shows the message as failed
+            logger.exception("Chat websocket method %s failed", method)
+            await self.send_error(method=method, detail="Something went wrong", client_id=content.get('client_id'))
 
-        await self.send_message(channel_id=self.user_channel, message=message)
+    async def send_error(self, *, method: str | None, detail, client_id: str = None):
+        error = dict(type='error', method=method, detail=detail)
+        if client_id:
+            error['client_id'] = client_id
 
-    async def send_message(self, channel_id: int | str | None, message: Union[dict, str]):
-        """
-        Sends a message to the specified channel.
-        :param channel_id: Channel to receive the message. Leave empty to send to the user's channel, accepts user_<id>.
-        :param message:
-        :return:
-        """
-        if isinstance(message, dict):
-            if not message.get("type"):
-                message["type"] = "message"
+        await self.send_json(error)
 
-        if isinstance(channel_id, int):
-            participants = MessageChannelParticipant.objects.filter(channel_id=channel_id)
-            message["status"] = "message_received"
+    # Channel layer handlers, called by flowback.chat.realtime
 
-            participant = await participants.select_related('channel').afirst()
-            if participant.channel.origin_name in ['user', 'user_group']:
-                async for participant in participants:
-                    await self.channel_layer.group_send(
-                        f"user_{participant.user_id}",
-                        message)
+    async def chat_event(self, content: dict):
+        await self.send_json(content['event'])
 
-            else:
-                await self.channel_layer.group_send(f"{channel_id}", message)
+    async def chat_channel_event(self, content: dict):
+        # Events queued before this socket unsubscribed from the chat
+        if realtime.channel_group_name(content['channel_id']) in self.groups_joined:
+            await self.send_json(content['event'])
 
-        else:
-            channel = self.user_channel if not channel_id else channel_id
-            await self.channel_layer.group_send(channel, message)
+    async def chat_subscribe(self, content: dict):
+        group = realtime.channel_group_name(content['channel_id'])
+        self.groups_joined.add(group)
+        await self.channel_layer.group_add(group, self.channel_name)
 
-    @database_sync_to_async
-    def _create_message(self, *,
-                        user_id: int,
-                        channel_id: int,
-                        message: str,
-                        attachments_id: int = None,
-                        parent_id: int = None,
-                        topic_id: int = None):
-
-        message = message_create(user_id=user_id, channel_id=channel_id, message=message,
-                                 attachments_id=attachments_id, parent_id=parent_id, topic_id=topic_id)
-
-        return MessageSerializer(message).data
-
-    async def message_create(self, data: dict):
-        class InputSerializer(serializers.Serializer):
-            channel_id = serializers.IntegerField()
-            message = serializers.CharField()
-            attachments_id = serializers.IntegerField(required=False)
-            parent_id = serializers.IntegerField(required=False)
-            topic_id = serializers.IntegerField(required=False)
-
-        serializer = InputSerializer(data=data)
-
-        try:
-            serializer.is_valid(raise_exception=True)
-            message = await self._create_message(user_id=self.user.id, **serializer.validated_data)
-
-        except ValidationError as e:
-            return await self.send_error_message(detail=e.detail,
-                                                 method="message_create",
-                                                 channel_id=self.user_channel)
-
-        await self.send_message(channel_id=data.get('channel_id'), message=message)
-
-    @database_sync_to_async
-    def _update_message(self, *,
-                        user_id: int,
-                        message_id: int,
-                        **data):
-
-        update = message_update(user_id=user_id, message_id=message_id, **data)
-
-        return dict(**MessageSerializer(update[0]).data, method="message_update")
-
-    async def message_update(self, data: dict):
-        class InputSerializer(serializers.Serializer):
-            message_id = serializers.IntegerField()
-            message = serializers.CharField()
-
-        serializer = InputSerializer(data=data)
-        try:
-            serializer.is_valid(raise_exception=True)
-            message = await self._update_message(user_id=self.user.id, **serializer.validated_data)
-
-        except ValidationError as e:
-            return await self.send_error_message(detail=e.detail,
-                                                 method="message_update",
-                                                 channel_id=self.user_channel)
-
-        await self.send_message(channel_id=message['channel_id'], message=message)
-
-    @database_sync_to_async
-    def _delete_message(self, *,
-                        user_id: int,
-                        message_id: int):
-        message = message_delete(user_id=user_id, message_id=message_id)
-        return dict(**MessageSerializer(message).data, method="message_delete")
-
-    async def message_delete(self, data: dict):
-        class InputSerializer(serializers.Serializer):
-            message_id = serializers.IntegerField()
-
-        serializer = InputSerializer(data=data)
-
-        try:
-            serializer.is_valid(raise_exception=True)
-            message = await self._delete_message(user_id=self.user.id, **serializer.validated_data)
-
-        except ValidationError as e:
-            return await self.send_error_message(detail=e.detail,
-                                                 method="message_delete",
-                                                 channel_id=self.user_channel)
-
-        await self.send_message(channel_id=message['channel_id'], message=message)
-
-    # Function to notify e.g. if the user is typing
-    async def message_notify(self, data: dict):
-        class InputSerializer(serializers.Serializer):
-            channel_id = serializers.IntegerField()
-            action = serializers.ChoiceField(choices=['is_typing'])
-
-        serializer = InputSerializer(data=data)
-
-        try:
-            serializer.is_valid(raise_exception=True)
-            await MessageChannelParticipant.objects.aget(user=self.user,
-                                                         channel_id=data['channel_id'])
-
-        except ValidationError as e:
-            return await self.send_error_message(detail=e.detail,
-                                                 method="message_notify",
-                                                 channel_id=self.user_channel)
-
-        except MessageChannelParticipant.DoesNotExist:
-            return await self.send_error_message(detail="User is not participating in this channel",
-                                                 method="message_notify",
-                                                 channel_id=self.user_channel)
-
-        data = serializer.validated_data
-        message = self.generate_status_message(channel_id=data['channel_id'],
-                                               user_id=self.user.id,
-                                               message=data['action'],
-                                               method='message_notify')
-
-        await self.send_message(channel_id=str(data['channel_id']), message=message)
-
-    # Allows user to add/remove channels without reconnecting, for e.g. joining and leaving a group
-    async def connect_channel(self, data, disconnect=False):
-        class ConnectChannelInputSerializer(serializers.Serializer):
-            channel_id = serializers.IntegerField()
-
-        serializer = ConnectChannelInputSerializer(data=data)
-        serializer.is_valid(raise_exception=True)
-        data = serializer.validated_data
-        channel_id = data.get('channel_id')
-
-        if not disconnect and channel_id in await self.get_participating_channels():
-            await self.channel_layer.group_add(f"{channel_id}", self.channel_name)
-            self.participating_channels.append(f"{channel_id}")
-
-        elif disconnect and channel_id in self.participating_channels:
-            await self.channel_layer.group_discard(f"{channel_id}", self.channel_name)
-
-        else:
-            await self.channel_layer.group_send(self.user_channel,
-                                                dict(channel_id=channel_id,
-                                                     type="error",
-                                                     message="Unknown operation"))
-
-        return True
+    async def chat_unsubscribe(self, content: dict):
+        group = realtime.channel_group_name(content['channel_id'])
+        self.groups_joined.discard(group)
+        await self.channel_layer.group_discard(group, self.channel_name)
