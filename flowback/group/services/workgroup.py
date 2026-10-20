@@ -22,9 +22,14 @@ def work_group_update(*, user_id: int, work_group_id: int, data) -> WorkGroup:
 
     available_fields = ['name', 'direct_join']
 
+    old_name = work_group.name
     instance, has_updated = model_update(instance=work_group,
                                          fields=available_fields,
                                          data=data)
+
+    if instance.name != old_name:
+        from flowback.chat.services import channel_set_title
+        channel_set_title(channel=instance.chat, title=instance.name)
 
     return instance
 

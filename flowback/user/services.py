@@ -11,15 +11,13 @@ from django.utils import timezone
 from rest_framework.exceptions import NotFound, ValidationError
 
 from backend.settings import DEFAULT_FROM_EMAIL, URL_USER_CREATE, URL_USER_FORGOT_PASSWORD, EMAIL_HOST
-from flowback.chat.models import MessageChannel, MessageChannelParticipant
-from flowback.chat.services import message_channel_create, message_channel_join, send_channel_info_message
 from flowback.common.services import model_update, get_object
 from flowback.group.models import GroupThread
 from flowback.kanban.services import KanbanManager
 from flowback.notification.models import NotificationChannel
 from flowback.poll.models import Poll
 from flowback.schedule.services import schedule_event_create, schedule_event_update, schedule_event_delete
-from flowback.user.models import User, OnboardUser, PasswordReset, Report, UserChatInvite, UserBookmark
+from flowback.user.models import User, OnboardUser, PasswordReset, Report, UserBookmark
 
 user_kanban = KanbanManager(origin_type='user')
 
@@ -184,146 +182,6 @@ def user_kanban_entry_update(*, user_id: int, entry_id: int, data):
 
 def user_kanban_entry_delete(*, user_id: int, entry_id: int):
     return user_kanban.kanban_entry_delete(origin_id=user_id, entry_id=entry_id)
-
-
-def user_get_chat_channel(fetched_by: User,
-                          target_user_ids: int | list[int],
-                          preview: bool = False,
-                          title: str = "",
-                          is_group: bool = False) -> MessageChannel:
-
-    def generate_title(users):
-        channel_title = ""
-        for i, user in enumerate(users):
-            if len(channel_title + user.username) > 50:
-                channel_title += (f"{' and' if channel_title else ''} "
-                                  f"{users.count() - i} "
-                                  f"other(s)...")
-                break
-            else:
-                channel_title += f", {user.username}" if i > 0 else user.username
-
-        return channel_title
-
-    if len(target_user_ids) > 25:
-        raise ValidationError("Cannot invite more than 25 users to group.")
-
-    if isinstance(target_user_ids, int):
-        target_user_ids = [target_user_ids]
-
-    if fetched_by.id not in target_user_ids:
-        target_user_ids.append(fetched_by.id)
-
-    target_users = User.objects.filter(id__in=target_user_ids, is_active=True).all()
-
-    if not target_users.count() == len(target_user_ids):
-        raise ValidationError("Not every user requested do exist")
-
-    if len(target_user_ids) == 1 and fetched_by.id == target_user_ids[0]:
-        raise ValidationError("Cannot create a chat with yourself")
-
-    # A channel is a group when explicitly requested (e.g. "+ New Group") or when it
-    # has more than two participants. Groups always use the group origin, invite
-    # participants (instead of silently auto-joining a DM partner), and must not
-    # reuse an existing direct-message channel between the same people.
-    group_channel = is_group or target_users.count() > 2
-    desired_origin = (User.message_channel_group_origin if group_channel else User.message_channel_origin)
-
-    try:
-        # Find a channel where all users are in the same chat
-        channel = MessageChannel.objects.annotate(count=Count('users')).filter(count=target_users.count(),
-                                                                               origin_name=desired_origin)
-
-        for u in target_users:
-            channel = channel.filter(users=u.id)
-
-        channel = channel.first()
-
-        if not channel:
-            raise MessageChannel.DoesNotExist
-
-        for u in target_users:
-            UserChatInvite.objects.filter(user=u, message_channel=channel, rejected=True).update(rejected=None)
-
-        # The requesting user opening the channel counts as accepting their own
-        # pending invite, otherwise they can neither read nor send messages in
-        # the channel they just asked for.
-        own_invite = UserChatInvite.objects.filter(user=fetched_by, message_channel=channel,
-                                                   rejected=None).first()
-        if own_invite:
-            own_invite.rejected = False
-            own_invite.save()
-
-    except MessageChannel.DoesNotExist:
-        if preview:
-            raise ValidationError("MessageChannel does not exist between the participants")
-
-        if title == "":
-            title = generate_title(target_users)
-
-        channel = message_channel_create(origin_name=desired_origin, title=title)
-
-        # In the future, make this a bulk_create statement
-        share_groups = False
-
-        if not group_channel:
-            share_groups = User.objects.filter(group__groupuser__user__in=target_users).exists()
-
-        for u in target_users:
-            u_is_public = u.chat_status == User.PublicStatus.PUBLIC
-            u_is_group_only = u.chat_status == User.PublicStatus.GROUP_ONLY
-
-            if ((not group_channel and (u_is_public or (u_is_group_only and share_groups))) or u.id == fetched_by.id
-                    or fetched_by.is_superuser == True):
-                message_channel_join(user_id=u.id, channel_id=channel.id)
-
-            else:
-                if not channel.messagechannelparticipant_set.filter(user_id=u.id).exists():
-                    u.notify_chat(action=NotificationChannel.Action.CREATED,
-                                  message="You have been invited to join a chat group",
-                                  message_channel_id=channel.id,
-                                  message_channel_title=channel.title)
-
-                    UserChatInvite.objects.update_or_create(user_id=u.id,
-                                                            message_channel_id=channel.id,
-                                                            rejected=False,
-                                                            defaults=dict(rejected=None))
-
-    return channel
-
-
-def user_chat_channel_leave(*, user_id: int, channel_id: int):
-    participant = MessageChannelParticipant.objects.get(channel_id=channel_id, user_id=user_id)
-
-    if not participant.channel.origin_name == f'{User.message_channel_origin}_group':
-        raise ValidationError("You can only leave user_group channels")
-
-    participant.channel.delete()
-
-
-def user_chat_invite(user_id: int, invite_id: int, accept: bool = True):
-    user = User.objects.get(id=user_id)
-    invite = UserChatInvite.objects.get(id=invite_id, rejected=None)
-
-    if not invite.user == user:
-        raise ValidationError("You cannot accept an invite for someone else")
-
-    invite.rejected = not accept
-    invite.save()
-
-
-def user_chat_channel_update(*, user_id: int, channel_id: int, **data: dict) -> MessageChannel | None:
-    participant = MessageChannelParticipant.objects.get(
-        channel_id=channel_id,
-        user_id=user_id,
-        active=True,
-        channel__origin_name__in=[User.message_channel_origin, User.message_channel_group_origin])
-
-    channel, has_updated = model_update(instance=MessageChannel.objects.get(id=channel_id), fields=['title'], data=data)
-
-    send_channel_info_message(participant, message=f"Channel changed name to {channel.title}")
-
-    return channel
 
 
 def report_create(*,

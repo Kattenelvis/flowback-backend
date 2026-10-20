@@ -1,12 +1,10 @@
 import json
-import math
 
 from django.core.exceptions import ValidationError
 from knox.auth import TokenAuthentication
 from rest_framework import status
 from rest_framework.test import APITestCase, APIRequestFactory, force_authenticate
 
-from flowback.chat.models import MessageChannel, MessageChannelParticipant
 from flowback.chat.tests.factories import MessageChannelFactory
 from flowback.comment.tests.factories import CommentFactory
 from flowback.common.tests import generate_request
@@ -17,7 +15,7 @@ from flowback.group.tests.factories import GroupThreadFactory, GroupUserFactory,
 from flowback.notification.models import NotificationObject, Notification, NotificationSubscription, NotificationChannel
 from flowback.poll.models import Poll
 from flowback.poll.tests.factories import PollFactory
-from flowback.user.models import User, UserChatInvite
+from flowback.user.models import User
 from flowback.user.services import user_create, user_create_verify, user_delete
 from flowback.user.tests.factories import UserFactory
 from flowback.user.views.home import UserHomeFeedAPI
@@ -389,86 +387,6 @@ class UserTest(APITestCase):
         response = generate_request(api=UserHomeFeedAPI, user=group_user_public_workgroupuser.group_user.user)
         self.assertEqual(response.status_code, 200, response.data)
         self.assertEqual(response.data['count'], 15)
-
-    def test_user_get_chat_channel(self):
-        participants = UserFactory.create_batch(25)
-
-        response = generate_request(api=UserGetChatChannelAPI,
-                                    data=dict(target_user_ids=[u.id for u in participants]),
-                                    user=self.user_one)
-
-        # Run second time to make sure we get the same channel_id
-        response_two = generate_request(api=UserGetChatChannelAPI,
-                                        data=dict(target_user_ids=[u.id for u in participants]),
-                                        user=self.user_one)
-
-        self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
-        self.assertEqual(response_two.status_code, status.HTTP_200_OK, response.data)
-
-        self.assertEqual(response.data['id'], response_two.data['id'])
-        self.assertTrue(MessageChannel.objects.filter(id=response.data['id']).exists())
-
-        # Count all participants + the user itself
-        self.assertEqual(MessageChannelParticipant.objects.filter(channel_id=response.data['id'],
-                                                                  active=False).count(), 25)
-        self.assertEqual(MessageChannelParticipant.objects.filter(channel_id=response.data['id'],
-                                                                  active=True).count(), 1)
-
-    def user_get_chat_channel_invite(self, participants: int = 1):
-        participants = UserFactory.create_batch(participants)
-
-        if len(participants) <= 0:
-            raise Exception("Can't run test with no participants")
-
-        response = generate_request(api=UserGetChatChannelAPI,
-                                    data=dict(target_user_ids=[u.id for u in participants]),
-                                    user=self.user_one)
-
-        self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
-        channel_id = response.data['id']
-        self.assertEqual(UserChatInvite.objects.all().count(), len(participants))
-        self.assertEqual(MessageChannelParticipant.objects.filter(channel_id=channel_id, active=True).count(),
-                         1)
-
-        self.assertEqual(MessageChannelParticipant.objects.filter(channel_id=channel_id, active=False).count(),
-                         len(participants))
-
-        acceptors = 0
-        for i, user in enumerate(participants):
-            accept = True if i <= math.floor(len(participants) / 2) else False
-            acceptors += int(accept)
-
-            response = generate_request(api=UserChatInviteAPI,
-                                        data=dict(invite_id=UserChatInvite.objects.get(user=user).id,
-                                                  accept=accept),
-                                        user=user)
-
-            self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
-
-        self.assertEqual(MessageChannelParticipant.objects.filter(channel_id=channel_id, active=True).count(),
-                         acceptors + 1)
-
-        self.assertEqual(UserChatInvite.objects.filter(rejected=True).count(),
-                         len(participants) - acceptors)
-
-        self.assertEqual(UserChatInvite.objects.filter(rejected=False).count(), acceptors)
-
-        self.assertEqual(UserChatInvite.objects.filter(rejected=None).count(), 0)
-
-        response = generate_request(api=UserGetChatChannelAPI,
-                                    data=dict(target_user_ids=[u.id for u in participants]),
-                                    user=self.user_one)
-
-        self.assertEqual(response.data['id'], channel_id, "Channel ID should not have changed")
-
-        self.assertEqual(UserChatInvite.objects.all().count(), len(participants))
-        self.assertEqual(UserChatInvite.objects.filter(rejected=True).count(), 0)
-
-    def test_user_get_chat_channel_invite_duo(self):
-        self.user_get_chat_channel_invite(participants=1)
-
-    def test_user_get_chat_channel_invite_group(self):
-        self.user_get_chat_channel_invite(participants=25)
 
     def test_notify_user_chat(self):
         """Test the notify_chat method in the User model"""
