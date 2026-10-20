@@ -19,8 +19,8 @@ from flowback.user.models import User
 from flowback.user.services import user_create, user_create_verify, user_delete
 from flowback.user.tests.factories import UserFactory
 from flowback.user.views.home import UserHomeFeedAPI
-from flowback.user.views.user import UserDeleteAPI, UserGetChatChannelAPI, UserUpdateApi, UserChatInviteAPI, UserGetApi, \
-    UserNotificationSubscribeAPI, UserCreateApi, UserCreateVerifyApi, UserLoginAPI
+from flowback.user.views.user import UserDeleteAPI, UserUpdateApi, UserGetApi, UserNotificationSubscribeAPI, \
+    UserCreateApi, UserCreateVerifyApi, UserLoginAPI
 from flowback.user.models import OnboardUser
 
 
