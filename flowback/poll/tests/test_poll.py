@@ -235,7 +235,7 @@ class PollTest(APITestCase):
 
         response = view(request, group_id=self.group.id)  # Success
 
-        self.assertTrue(json.loads(response.rendered_content).get('detail')[0] == 'Schedule poll must be dynamic',
+        self.assertTrue(json.loads(response.rendered_content).get('detail') == 'Schedule poll must be dynamic',
                         json.loads(response.rendered_content))
 
     def test_update_poll(self):

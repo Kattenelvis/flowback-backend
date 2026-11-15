@@ -118,7 +118,7 @@ class AccountUpdateApiTestCase(TestCase):
         response = self.client.post(url, payload)
         response_json = json.loads(response.content.decode('utf-8'))
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(response_json['detail'][0], 'account does not exist')
+        self.assertEqual(response_json['detail'], 'account does not exist')
 
     def test_account_update_api_empty_payload(self):
         url = reverse('api:addon:ledger:ledger_update',
@@ -129,10 +129,9 @@ class AccountUpdateApiTestCase(TestCase):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(Account.objects.get(
             id=self.account.id).account_name, 'Test Account')
-        self.assertEqual(
-            response_json['detail']['account_number'][0], 'This field is required.')
-        self.assertEqual(
-            response_json['detail']['account_name'][0], 'This field is required.')
+        errors = {error['field']: error['message'] for error in response_json['errors']}
+        self.assertEqual(errors['account_number'], 'This field is required.')
+        self.assertEqual(errors['account_name'], 'This field is required.')
 
     def test_account_update_api_with_other_user(self):
         other_user = User.objects.create_user(
@@ -145,7 +144,7 @@ class AccountUpdateApiTestCase(TestCase):
         response = self.client.post(url, payload)
         response_json = json.loads(response.content.decode('utf-8'))
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(response_json['detail'][0], 'account does not exist')
+        self.assertEqual(response_json['detail'], 'account does not exist')
 
 
 class AccountDeleteAPITest(TestCase):
@@ -169,7 +168,7 @@ class AccountDeleteAPITest(TestCase):
         response = self.client.post(url)
         response_json = json.loads(response.content.decode('utf-8'))
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(response_json['detail'][0], 'account does not exist')
+        self.assertEqual(response_json['detail'], 'account does not exist')
 
     def test_account_delete_api_with_other_user(self):
         other_user = User.objects.create_user(
@@ -180,7 +179,7 @@ class AccountDeleteAPITest(TestCase):
         response = self.client.post(url)
         response_json = json.loads(response.content.decode('utf-8'))
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(response_json['detail'][0], 'account does not exist')
+        self.assertEqual(response_json['detail'], 'account does not exist')
 
 
 class TransactionListAPITest(TestCase):
@@ -321,7 +320,7 @@ class TransactionUpdateApiTestCase(TestCase):
         response = self.client.post(url, payload)
         response_json = json.loads(response.content.decode('utf-8'))
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(response_json['detail'][0], 'transaction does not exist')
+        self.assertEqual(response_json['detail'], 'transaction does not exist')
 
     def test_transaction_update_api_empty_payload(self):
         url = reverse('api:addon:ledger:ledger_transactions_update',
@@ -332,10 +331,9 @@ class TransactionUpdateApiTestCase(TestCase):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(Account.objects.get(
             id=self.account.id).account_name, 'Test Account')
-        self.assertEqual(
-            response_json['detail']['description'][0], 'This field is required.')
-        self.assertEqual(
-            response_json['detail']['verification_number'][0], 'This field is required.')
+        errors = {error['field']: error['message'] for error in response_json['errors']}
+        self.assertEqual(errors['description'], 'This field is required.')
+        self.assertEqual(errors['verification_number'], 'This field is required.')
 
     def test_transaction_update_api_with_other_user(self):
         other_user = User.objects.create_user(
@@ -352,7 +350,7 @@ class TransactionUpdateApiTestCase(TestCase):
         response = self.client.post(url, payload)
         response_json = json.loads(response.content.decode('utf-8'))
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(response_json['detail'][0], 'transaction does not exist')
+        self.assertEqual(response_json['detail'], 'transaction does not exist')
         
     def test_transaction_update_api_with_debit_and_credit_amount(self):
         url = reverse('api:addon:ledger:ledger_transactions_update',
@@ -368,7 +366,7 @@ class TransactionUpdateApiTestCase(TestCase):
         response_json = json.loads(response.content.decode('utf-8'))
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(
-            response_json['detail']['non_field_errors'][0], 'Each transaction must have either a debit or a credit amount, but not both')
+            response_json['detail'], 'Each transaction must have either a debit or a credit amount, but not both')
 
 class TransactionDeleteAPITest(TestCase):
     def setUp(self):
@@ -399,7 +397,7 @@ class TransactionDeleteAPITest(TestCase):
         response = self.client.post(url)
         response_json = json.loads(response.content.decode('utf-8'))
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(response_json['detail'][0], 'transaction does not exist')
+        self.assertEqual(response_json['detail'], 'transaction does not exist')
 
     def test_transaction_delete_api_with_other_user(self):
         other_user = User.objects.create_user(
@@ -410,7 +408,7 @@ class TransactionDeleteAPITest(TestCase):
         response = self.client.post(url)
         response_json = json.loads(response.content.decode('utf-8'))
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(response_json['detail'][0], 'transaction does not exist')
+        self.assertEqual(response_json['detail'], 'transaction does not exist')
 
 
 def make_user(name='testuser'):
