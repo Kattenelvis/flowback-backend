@@ -13,7 +13,7 @@ Clients send {"method": ..., ...} and receive {"type": ..., ...} events:
     channel.updated  {channel_id, title, member_count}
     channel.removed  {channel_id}    Left, declined, removed, or the chat was deleted
     channel.read     {channel_id}    Read in another tab
-    error            {method, detail, client_id?}
+    error            {method, detail, code, errors, client_id?}
 
 Everything except errors is sent by flowback.chat.realtime, so actions taken over HTTP reach
 clients the same way as ones taken here.
@@ -21,15 +21,15 @@ clients the same way as ones taken here.
 import json
 import logging
 
-from django.core.exceptions import ValidationError as DjangoValidationError
 from channels.db import database_sync_to_async
 from channels.generic.websocket import AsyncJsonWebsocketConsumer
 from rest_framework import serializers
-from rest_framework.exceptions import ValidationError
+from rest_framework.exceptions import APIException, ParseError
 
 from flowback.chat import realtime
 from flowback.chat.models import MessageChannelParticipant
 from flowback.chat.services import message_create, message_update, message_delete
+from flowback.common.exception_handlers import error_body, to_api_exception
 
 logger = logging.getLogger(__name__)
 
@@ -99,11 +99,11 @@ class ChatConsumer(AsyncJsonWebsocketConsumer):
 
     async def receive_json(self, content, **kwargs):
         if not isinstance(content, dict):
-            return await self.send_error(method=None, detail="Messages must be JSON objects")
+            return await self.send_error(method=None, exc=ParseError("Messages must be JSON objects"))
 
         method = content.get('method')
         if method not in METHODS:
-            return await self.send_error(method=method, detail=f"Unknown method '{method}'")
+            return await self.send_error(method=method, exc=ParseError(f"Unknown method '{method}'"))
 
         serializer_class, service = METHODS[method]
         try:
@@ -111,18 +111,14 @@ class ChatConsumer(AsyncJsonWebsocketConsumer):
             serializer.is_valid(raise_exception=True)
             await database_sync_to_async(service)(user_id=self.user.id, **serializer.validated_data)
 
-        except ValidationError as e:
-            await self.send_error(method=method, detail=e.detail, client_id=content.get('client_id'))
+        except Exception as e:  # Keep the socket open; the client shows the message as failed
+            if to_api_exception(e) is None:  # A bug, not a refused action
+                logger.exception("Chat websocket method %s failed", method)
+            await self.send_error(method=method, exc=e, client_id=content.get('client_id'))
 
-        except DjangoValidationError as e:
-            await self.send_error(method=method, detail=e.messages, client_id=content.get('client_id'))
-
-        except Exception:  # Keep the socket open; the client shows the message as failed
-            logger.exception("Chat websocket method %s failed", method)
-            await self.send_error(method=method, detail="Something went wrong", client_id=content.get('client_id'))
-
-    async def send_error(self, *, method: str | None, detail, client_id: str = None):
-        error = dict(type='error', method=method, detail=detail)
+    async def send_error(self, *, method: str | None, exc: Exception, client_id: str = None):
+        # Same shape as HTTP errors, see flowback.common.exception_handlers
+        error = dict(type='error', method=method, **error_body(to_api_exception(exc) or APIException()))
         if client_id:
             error['client_id'] = client_id
 

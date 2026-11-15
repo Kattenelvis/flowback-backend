@@ -168,7 +168,7 @@ class ChatWebsocketTest(APITransactionTestCase):
         await self.send(member, "x" * 2001, client_id="draft-3")
         error = await self.receive_until(member, 'error')
         self.assertEqual(error['client_id'], "draft-3")
-        self.assertIn('message', error['detail'])
+        self.assertEqual(error['errors'][0]['field'], 'message')
 
         await member.disconnect()
 

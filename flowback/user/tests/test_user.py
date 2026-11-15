@@ -151,7 +151,7 @@ class UserTest(APITestCase):
         response = generate_request(UserCreateVerifyApi, data=data)
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn('username', response.data['detail'])
+        self.assertIn('username', [error['field'] for error in response.data['errors']])
         self.assertFalse(User.objects.filter(email="test@example.com").exists())
 
         # The rejected attempt must not use up the verification code, and a visible username must work
@@ -168,7 +168,7 @@ class UserTest(APITestCase):
                 response = generate_request(UserUpdateApi, data=dict(username=username), user=user)
 
                 self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-                self.assertIn('username', response.data['detail'])
+                self.assertIn('username', [error['field'] for error in response.data['errors']])
                 self.assertEqual(User.objects.get(id=user.id).username, "anna")
 
         response = generate_request(UserUpdateApi, data=dict(username="new_name"), user=user)
