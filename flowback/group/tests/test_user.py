@@ -75,8 +75,10 @@ class GroupUserTest(APITestCase):
 
         # Chat participant removed
         self.assertFalse(MessageChannelParticipant.objects.filter(id=member.chat_participant_id,
-                                                                  active=True).exists())
+                                                                  status='active').exists())
 
-        # Notification subscriptions to this group's channel removed
+        # Notification subscriptions of the leaving user to this group's channel removed
+        # (other users, such as admins, keep theirs)
         self.assertFalse(NotificationSubscription.objects.filter(
+            user=member.user,
             channel__in=self.group.notification_channel.descendants(include_self=True)).exists())

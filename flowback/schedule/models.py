@@ -1,13 +1,13 @@
 import datetime
 import json
+from zoneinfo import ZoneInfo
 
 import pgtrigger
-from celery.schedules import crontab
 from django.contrib.contenttypes.fields import GenericForeignKey, GenericRelation
 from django.contrib.contenttypes.models import ContentType
 from django.contrib.postgres.fields import ArrayField
 from django.db import models, transaction
-from django.db.models import Q
+from django.db.models import DurationField, ExpressionWrapper, F, Q
 from django.db.models.signals import post_save, pre_delete
 from django.utils import timezone
 from django_celery_beat.models import PeriodicTask, CrontabSchedule
@@ -15,9 +15,11 @@ from rest_framework.exceptions import ValidationError
 
 from flowback.common.models import BaseModel
 from flowback.common.validators import FieldNotBlankValidator
+from flowback.schedule import recurrence
+from flowback.schedule.recurrence import validate_timezone_name
 from django.utils.translation import gettext_lazy as _
 
-from flowback.notification.models import NotifiableModel, NotificationObject
+from flowback.notification.models import NotifiableModel, NotificationObject, Notification
 
 
 class Schedule(BaseModel):
@@ -43,7 +45,9 @@ class Schedule(BaseModel):
                      tag: str = None,
                      assignees: list[int] = None,
                      meeting_link: str = None,
-                     repeat_frequency: int = None):
+                     repeat_frequency: int = None,
+                     repeat_frequency_end_date: datetime = None,
+                     timezone: str = 'UTC'):
         if not tag and not self.default_tag:
             raise ValidationError("Schedule must either have a tag or a default tag.")
 
@@ -56,7 +60,9 @@ class Schedule(BaseModel):
                               created_by=created_by,
                               tag=tag or self.default_tag,
                               meeting_link=meeting_link,
-                              repeat_frequency=repeat_frequency)
+                              repeat_frequency=repeat_frequency,
+                              repeat_frequency_end_date=repeat_frequency_end_date,
+                              timezone=timezone)
 
         if assignees:
             event.assignees.add(*assignees)
@@ -164,7 +170,8 @@ class Schedule(BaseModel):
 
             tags.delete()
 
-    def subscribe_events(self, user, event_ids: list[int], user_tags: list[str], reminders: list[int], locked: bool):
+    def subscribe_events(self, user, event_ids: list[int], user_tags: list[str], reminders: list[int], locked: bool,
+                         occurrence_start: datetime.datetime = None):
         """
         Subscribe a user to a specified event with optional user tags and locked status.
 
@@ -174,6 +181,7 @@ class Schedule(BaseModel):
         :param reminders: A list of reminders (in seconds before the event begins)
         :param locked: A boolean indicating whether the event subscription is locked
          (that is, not affected by tag subscribe/unsubscribe).
+        :param occurrence_start: Start of the one occurrence of a repeating event to follow, leave empty to follow all.
         :return: ScheduleEventUserData object
         """
         with transaction.atomic():
@@ -183,7 +191,7 @@ class Schedule(BaseModel):
                 raise ValidationError("One or more events does not exist.")
 
             for event in events:
-                event.event_subscribe(user, user_tags, locked, reminders)
+                event.event_subscribe(user, user_tags, locked, reminders, occurrence_start)
 
     def unsubscribe_events(self, user, event_ids: list[int]) -> None:
         """
@@ -236,10 +244,10 @@ post_save.connect(ScheduleTag.post_save, ScheduleTag)
 
 class ScheduleEvent(BaseModel, NotifiableModel):
     class Frequency(models.IntegerChoices):
-        DAILY = 1, _("Daily")
-        WEEKLY = 2, _("Weekly")
-        MONTHLY = 3, _("Monthly")  # If event start_date day is 29 or higher, skip months that has these dates
-        YEARLY = 4, _("Yearly")
+        DAILY = recurrence.DAILY, _("Daily")
+        WEEKLY = recurrence.WEEKLY, _("Weekly")
+        MONTHLY = recurrence.MONTHLY, _("Monthly")  # If event start_date day is 29 or higher, skip months that has these dates
+        YEARLY = recurrence.YEARLY, _("Yearly")
 
     schedule = models.ForeignKey(Schedule, on_delete=models.CASCADE)
     title = models.TextField(validators=[FieldNotBlankValidator])
@@ -259,6 +267,9 @@ class ScheduleEvent(BaseModel, NotifiableModel):
 
     repeat_frequency = models.IntegerField(null=True, blank=True, choices=Frequency.choices)
     repeat_frequency_end_date = models.DateTimeField(null=True, blank=True)
+
+    # Repeating events keep their wall-clock time in this timezone (IANA name), also when the clocks change
+    timezone = models.CharField(max_length=64, default='UTC', validators=[validate_timezone_name])
 
     NOTIFICATION_DATA_FIELDS = (('id', int),
                                 ('title', str),
@@ -298,36 +309,28 @@ class ScheduleEvent(BaseModel, NotifiableModel):
 
         return self.notification_channel.notify(**data)
 
-    def _get_cron_from_date(self, date: datetime.datetime):
-        date = date.astimezone(timezone.now().tzinfo)
-        freq = self.Frequency
+    @property
+    def zone_info(self) -> ZoneInfo:
+        return ZoneInfo(self.timezone)
 
-        if self.repeat_frequency == freq.DAILY:
-            schedule = crontab(minute=date.minute, hour=date.hour)
-        elif self.repeat_frequency == freq.WEEKLY:
-            schedule = crontab(minute=date.minute,
-                               hour=date.hour,
-                               day_of_week=str(date.weekday()))
-        elif self.repeat_frequency == freq.MONTHLY:
-            schedule = crontab(minute=date.minute,
-                               hour=date.hour,
-                               day_of_month=date.day)
-        elif self.repeat_frequency == freq.YEARLY:
-            schedule = crontab(minute=date.minute,
-                               hour=date.hour,
-                               day_of_month=date.day,
-                               month_of_year=date.month)
-        else:
-            schedule = None
-
-        return schedule
+    def _next_occurrence(self, first: datetime.datetime, last: datetime.datetime | None):
+        return recurrence.next_occurrence(first=first,
+                                          frequency=self.repeat_frequency,
+                                          tz=self.zone_info,
+                                          after=timezone.now(),
+                                          last=last)
 
     @property
     def is_live(self) -> bool:
-        """Returns true if the event has yet to begin or already begun, false otherwise."""
-        return (self.active
-                and self.end_date >= timezone.now()
-                if self.end_date else self.active)
+        """Returns true if the event has yet to begin, already begun or has occurrences to come, false otherwise."""
+        if not self.active:
+            return False
+
+        if not self.end_date or self.end_date >= timezone.now():
+            return True
+
+        # end_date is where the first occurrence of a repeating event ends
+        return bool(self.repeat_frequency) and self.next_end_date is not None
 
     @property
     def next_start_date(self) -> datetime.datetime | None:
@@ -335,7 +338,7 @@ class ScheduleEvent(BaseModel, NotifiableModel):
             return self.start_date
 
         elif self.repeat_frequency:
-            return timezone.now() + self._get_cron_from_date(self.start_date).remaining_estimate(timezone.now())
+            return self._next_occurrence(self.start_date, last=self.repeat_frequency_end_date)
 
         return None
 
@@ -348,7 +351,10 @@ class ScheduleEvent(BaseModel, NotifiableModel):
             return self.end_date
 
         elif self.repeat_frequency:
-            return timezone.now() + self._get_cron_from_date(self.end_date).remaining_estimate(timezone.now())
+            # The repeat end date is the last time the event may start, it still ends afterwards
+            last = (self.repeat_frequency_end_date + (self.end_date - self.start_date)
+                    if self.repeat_frequency_end_date else None)
+            return self._next_occurrence(self.end_date, last=last)
 
         return None
 
@@ -369,19 +375,60 @@ class ScheduleEvent(BaseModel, NotifiableModel):
                             timestamp=self.next_end_date,
                             message=f"Event ended: {self.title}")
 
+        # Followers of a single occurrence have no channel subscription to get these from
+        for subscription in self.scheduleeventsubscription_set.filter(occurrence_start__isnull=False):
+            subscription.sync_notifications()
+
+    def occurrence_dates(self, start: datetime.datetime) -> tuple[datetime.datetime, datetime.datetime | None] | None:
+        """
+        The start and end of the occurrence that starts at the given time (to the millisecond),
+        None if the event has no such occurrence.
+        """
+        if not self.repeat_frequency:
+            same = abs(start - self.start_date) < recurrence.SAME_TIME
+            return (self.start_date, self.end_date) if same else None
+
+        index = recurrence.occurrence_index(first=self.start_date,
+                                            frequency=self.repeat_frequency,
+                                            tz=self.zone_info,
+                                            at=start,
+                                            last=self.repeat_frequency_end_date)
+        if index is None:
+            return None
+
+        end = (recurrence.occurrence(self.end_date, self.repeat_frequency, index, self.zone_info)
+               if self.end_date else None)
+        return recurrence.occurrence(self.start_date, self.repeat_frequency, index, self.zone_info), end
+
     def event_subscribe(self, user,
                         user_tags: list[str] = None,
                         locked: bool = True,
-                        reminders: list[int] = None):
+                        reminders: list[int] = None,
+                        occurrence_start: datetime.datetime = None):
+        """
+        Subscribes the user to the event.
+        :param occurrence_start: Start of the one occurrence of a repeating event to follow, leave empty to follow all.
+        """
         if not (self.active and self.is_live):
             raise ValidationError("Event is not active or has already ended.")
+
+        if occurrence_start is not None:
+            dates = self.occurrence_dates(occurrence_start)
+            if dates is None:
+                raise ValidationError("Event has no occurrence starting at that time.")
+
+            if (dates[1] or dates[0]) < timezone.now():
+                raise ValidationError("Occurrence has already ended.")
+
+            occurrence_start = dates[0]
 
         user_schedule = ScheduleUser.objects.get(schedule=self.schedule, user=user)
         ScheduleEventSubscription.objects.update_or_create(event=self,
                                                            schedule_user=user_schedule,
-                                                           defaults=dict(tags=user_tags),
-                                                           reminders=reminders,
-                                                           locked=locked)
+                                                           defaults=dict(tags=user_tags,
+                                                                         reminders=reminders,
+                                                                         locked=locked,
+                                                                         occurrence_start=occurrence_start))
 
     def event_unsubscribe(self, user):
         with transaction.atomic():
@@ -410,27 +457,32 @@ class ScheduleEvent(BaseModel, NotifiableModel):
 
         # Repeat Frequency and notification management
         if instance.repeat_frequency:
+            # The crontab runs in the event's timezone, so that it keeps its time of day when the clocks change
+            end_date = instance.end_date.astimezone(instance.zone_info)
+
             cron_data = dict()
             if instance.repeat_frequency == instance.Frequency.WEEKLY:
-                cron_data['day_of_week'] = str(instance.end_date.weekday())
+                cron_data['day_of_week'] = str(end_date.weekday())
 
             elif instance.repeat_frequency == instance.Frequency.MONTHLY:
-                cron_data['day_of_month'] = instance.end_date.day
+                cron_data['day_of_month'] = end_date.day
 
             elif instance.repeat_frequency == instance.Frequency.YEARLY:
-                cron_data['month_of_year'] = instance.end_date.month
-                cron_data['day_of_month'] = instance.end_date.day
+                cron_data['month_of_year'] = end_date.month
+                cron_data['day_of_month'] = end_date.day
 
-            crontabs = CrontabSchedule.objects.filter(minute=instance.end_date.minute,
-                                                      hour=instance.end_date.hour,
+            crontabs = CrontabSchedule.objects.filter(minute=end_date.minute,
+                                                      hour=end_date.hour,
+                                                      timezone=instance.zone_info,
                                                       **cron_data)
 
             if crontabs.exists():
                 cron_schedule = crontabs.first()
 
             else:
-                cron_schedule = CrontabSchedule(minute=instance.end_date.minute,
-                                                hour=instance.end_date.hour,
+                cron_schedule = CrontabSchedule(minute=end_date.minute,
+                                                hour=end_date.hour,
+                                                timezone=instance.zone_info,
                                                 **cron_data)
 
                 cron_schedule.full_clean()
@@ -439,7 +491,7 @@ class ScheduleEvent(BaseModel, NotifiableModel):
             # If not created, update the instance task with a new crontab schedule
             task = PeriodicTask.objects.filter(name=f"schedule_event_{instance.id}").first()
             if task:
-                if task.crontab != cron_schedule and task.expires != instance.repeat_frequency_end_date:
+                if task.crontab != cron_schedule or task.expires != instance.repeat_frequency_end_date:
                     task.start_date = instance.start_date
                     task.crontab = cron_schedule
                     task.expires = instance.repeat_frequency_end_date
@@ -457,8 +509,16 @@ class ScheduleEvent(BaseModel, NotifiableModel):
 
                 instance.regenerate_notifications()
 
+        elif created:
+            # A repeating event is given its notifications along with its periodic task above
+            instance.regenerate_notifications()
+
         if not created:
-            if update_fields and any([x in update_fields for x in ['end_date', 'start_date', 'repeat_frequency']]):
+            if update_fields and any([x in update_fields for x in ['end_date',
+                                                                   'start_date',
+                                                                   'repeat_frequency',
+                                                                   'repeat_frequency_end_date',
+                                                                   'timezone']]):
                 instance.regenerate_notifications()
 
 
@@ -473,20 +533,74 @@ class ScheduleEventSubscription(BaseModel):
                       help_text="A list of user-defined tags")
     locked = models.BooleanField(default=True, help_text="If set to true and user unsubscribes from the tag related "
                                                          "to the event, the event will remain subscribed.")
+    occurrence_start = models.DateTimeField(null=True, blank=True,
+                                            help_text="Start of the one occurrence of a repeating event that the user "
+                                                      "follows. Leave empty to follow every occurrence.")
 
     class Meta:
         constraints = [models.UniqueConstraint('event', 'schedule_user', name='eventscheduleuser_unique')]
 
+    def upcoming_notifications(self):
+        """The user's notifications about the event that have yet to be shown, reminders are shown ahead of the event"""
+        return Notification.objects.filter(user=self.schedule_user.user,
+                                           notification_object__channel=self.event.notification_channel
+                                           ).annotate(due=ExpressionWrapper(
+                                               F('notification_object__timestamp')
+                                               - F('reminder') * datetime.timedelta(seconds=1),
+                                               output_field=models.DateTimeField())
+                                           ).filter(due__gt=timezone.now())
+
+    def sync_notifications(self):
+        """
+        Gives the user the notifications the event has already generated for the occurrences they follow.
+        Those are made when the event repeats, so someone subscribing in between would miss them.
+        """
+        self.upcoming_notifications().delete()
+
+        occurrence = (self.event.occurrence_dates(self.occurrence_start)
+                      if self.occurrence_start else None)
+        notification_objects = self.event.notification_channel.notificationobject_set.filter(
+            timestamp__gt=timezone.now(), tag__in=['start', 'end'])
+
+        notifications = []
+        for notification_object in notification_objects:
+            if self.occurrence_start:
+                expected = None if occurrence is None else occurrence[1 if notification_object.tag == 'end' else 0]
+                if notification_object.timestamp != expected:
+                    continue
+
+            notifications.append(Notification(user=self.schedule_user.user, notification_object=notification_object))
+
+            # Reminders are only made for the start, and not for those that should have been shown by now
+            if notification_object.tag == 'start':
+                for reminder in self.reminders or []:
+                    if notification_object.timestamp - datetime.timedelta(seconds=reminder) > timezone.now():
+                        notifications.append(Notification(user=self.schedule_user.user,
+                                                          notification_object=notification_object,
+                                                          reminder=reminder))
+
+        Notification.objects.bulk_create(notifications, ignore_conflicts=True)
+
     @classmethod
     def post_save(cls, instance, *args, **kwargs):
-        instance.event.notification_channel.subscribe(user=instance.schedule_user.user,
-                                                      tags=['start', 'end'],
-                                                      reminders=(None if not instance.reminders
-                                                                 else [instance.reminders, None]))
+        channel = instance.event.notification_channel
+        user = instance.schedule_user.user
+
+        if instance.occurrence_start:
+            channel.unsubscribe(user=user)
+
+        else:
+            channel.subscribe(user=user,
+                              tags=['start', 'end'],
+                              reminders=(None if not instance.reminders
+                                         else [instance.reminders, None]))
+
+        instance.sync_notifications()
 
     @classmethod
     def pre_delete(cls, instance, *args, **kwargs):
         instance.event.notification_channel.unsubscribe(user=instance.schedule_user.user)
+        instance.upcoming_notifications().delete()
 
 
 post_save.connect(ScheduleEventSubscription.post_save, ScheduleEventSubscription)
@@ -512,10 +626,14 @@ class ScheduleTagSubscription(BaseModel):
     def post_save(cls, instance, created, *args, **kwargs):
         events = instance.schedule_tag.scheduleevent_set.filter(Q(start_date__gte=timezone.now())
                                                                 | Q(end_date__isnull=True)
-                                                                | Q(end_date__gt=timezone.now()), active=True)
+                                                                | Q(end_date__gt=timezone.now())
+                                                                | Q(repeat_frequency__isnull=False), active=True)
+
+        # What the user chose for an event themselves is not changed by the tag
+        chosen = ScheduleEventSubscription.objects.filter(schedule_user=instance.schedule_user, locked=True)
 
         with transaction.atomic():
-            for event in events:
+            for event in filter(lambda e: e.is_live, events.exclude(scheduleeventsubscription__in=chosen)):
                 event.event_subscribe(user=instance.schedule_user.user, locked=False, reminders=instance.reminders)
 
     def delete_user_events(self, include_locked: bool = False, user_tags: list[str] | None = None):

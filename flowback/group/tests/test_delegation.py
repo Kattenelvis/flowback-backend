@@ -360,4 +360,4 @@ class GroupDelegationTestCase(APITestCase):
 
         # Should not be permitted
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response)
-        self.assertEqual(response.data['detail'][0], 'User has already subscribed to tag1')
+        self.assertEqual(response.data['detail'], 'User has already subscribed to tag1')

@@ -1,5 +1,6 @@
 from django.test import TestCase
 
+from flowback.group.services.group import group_join
 from flowback.group.notify import (
     notify_group_kanban,
     notify_group_thread,
@@ -251,3 +252,46 @@ class GroupNotificationTest(TestCase):
                 notification_object__action=action
             ).exists()
         )
+
+
+class GroupJoinRequestNotificationTest(TestCase):
+    def setUp(self):
+        self.group = GroupFactory(direct_join=False, public=True)
+        self.admin = self.group.created_by
+        self.requester = UserFactory()
+
+    def join_request_notifications(self, user):
+        return Notification.objects.filter(user=user,
+                                           notification_object__channel=self.group.notification_channel,
+                                           notification_object__tag='join_request')
+
+    def test_creator_notified_by_default(self):
+        group_join(user=self.requester.id, group=self.group.id)
+
+        self.assertEqual(self.join_request_notifications(self.admin).count(), 1)
+        self.assertFalse(self.join_request_notifications(self.requester).exists())
+
+    def test_promoted_admin_notified(self):
+        new_admin = GroupUserFactory(group=self.group, is_admin=False)
+        new_admin.is_admin = True
+        new_admin.save(update_fields=['is_admin'])
+
+        group_join(user=self.requester.id, group=self.group.id)
+
+        self.assertEqual(self.join_request_notifications(new_admin.user).count(), 1)
+
+    def test_non_admin_subscriber_not_notified(self):
+        member = GroupUserFactory(group=self.group, is_admin=False)
+        self.group.subscribe_join_request(member.user)
+
+        group_join(user=self.requester.id, group=self.group.id)
+
+        self.assertFalse(self.join_request_notifications(member.user).exists())
+
+    def test_direct_join_does_not_notify(self):
+        self.group.direct_join = True
+        self.group.save(update_fields=['direct_join'])
+
+        group_join(user=self.requester.id, group=self.group.id)
+
+        self.assertFalse(self.join_request_notifications(self.admin).exists())

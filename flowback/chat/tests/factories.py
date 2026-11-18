@@ -15,7 +15,7 @@ class MessageChannelFactory(factory.django.DjangoModelFactory):
         model = MessageChannel
 
     title = factory.LazyAttribute(lambda _: fake.sentence(nb_words=2))
-    origin_name = "message"
+    kind = MessageChannel.Kind.USER_GROUP
 
 
 class MessageFactory(factory.django.DjangoModelFactory):

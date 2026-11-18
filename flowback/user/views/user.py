@@ -14,17 +14,13 @@ from rest_framework.views import APIView
 
 from flowback.notification.views import NotificationSubscribeTemplateAPI
 from flowback.user.models import User
-from flowback.user.selectors import get_user, user_list, user_chat_invite_list
+from flowback.user.selectors import get_user, user_list
 from flowback.user.services import (user_create,
                                     user_create_verify,
                                     user_forgot_password,
                                     user_forgot_password_verify,
                                     user_update,
                                     user_delete,
-                                    user_get_chat_channel,
-                                    user_chat_invite,
-                                    user_chat_channel_leave,
-                                    user_chat_channel_update,
                                     user_notification_subscribe,
                                     user_bookmark_create,
                                     user_bookmark_delete)
@@ -34,30 +30,30 @@ class UserLoginAPI(KnoxLoginView):
     permission_classes = (AllowAny, )
 
     class InputSerializer(serializers.Serializer):
-        username = serializers.CharField()
+        email = serializers.EmailField()
         password = serializers.CharField()
 
         def validate(self, attrs):
-            username = attrs.get('username')
+            email = attrs.get('email')
             password = attrs.get('password')
 
             # Same error for unknown user and wrong password to prevent user enumeration
-            try:
-                user = User.objects.get(username=username)
-            except User.DoesNotExist:
+            user = User.objects.filter(email__iexact=email).first()
+            if user is None:
                 # Run the password hasher anyway so response time doesn't reveal whether the user exists
                 User().set_password(password)
-                raise ValidationError('Wrong username or password')
+                raise ValidationError('Wrong email or password')
 
             if not user.check_password(password):
-                raise ValidationError('Wrong username or password')
+                raise ValidationError('Wrong email or password')
 
+            attrs['user'] = user
             return attrs
 
     def post(self, request, format=None):
         serializer = self.InputSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        token = AuthToken.objects.create(user=User.objects.get(username=serializer.data['username']))[1]
+        token = AuthToken.objects.create(user=serializer.validated_data['user'])[1]
         return Response(data=token, status=status.HTTP_200_OK)
 
 
@@ -230,108 +226,6 @@ class UserDeleteAPI(APIView):
 @extend_schema(description=User.notification_docs())
 class UserNotificationSubscribeAPI(NotificationSubscribeTemplateAPI):
     lazy_action = user_notification_subscribe
-
-
-@extend_schema(description="Get/creates a message channel between user(s). "
-               "If there are more than two target_user_ids or the target_user_id has direct_message turned "
-               "into private/(protected and not in same group(s)), it'll create a MessageChannel, "
-               "send/update UserChatInvite(s) to respective users, create/update their "
-               "MessageChannelParticipant active field to False.")
-class UserGetChatChannelAPI(APIView):
-
-    class FilterSerializer(serializers.Serializer):
-        target_user_ids = serializers.ListField(child=serializers.IntegerField())
-        title = serializers.CharField(required=False)
-        is_group = serializers.BooleanField(default=False,
-                                            help_text="Force a group channel (with invites) even when there "
-                                            "are only two participants, instead of a direct message.")
-        preview = serializers.BooleanField(default=False,
-                                           help_text="Disabling preview will return 400 if there's no"
-                                           " MessageChannel found between the users.")
-
-    class OutputSerializer(serializers.Serializer):
-        id = serializers.IntegerField()
-        title = serializers.CharField()
-
-    def get(self, request):
-        serializer = self.FilterSerializer(data=request.query_params)
-        serializer.is_valid(raise_exception=True)
-        data = user_get_chat_channel(fetched_by=request.user, **serializer.validated_data)
-
-        return Response(status=status.HTTP_200_OK, data=self.OutputSerializer(data).data)
-
-
-class UserLeaveChatChannelAPI(APIView):
-
-    class InputSerializer(serializers.Serializer):
-        message_channel_id = serializers.IntegerField(help_text="You can only leave channels "
-                                                      "with the origin_name 'user_group'")
-
-    def post(self, request):
-        serializer = self.InputSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-
-        user_chat_channel_leave(user_id=request.user.id, **serializer.validated_data)
-        return Response(status=status.HTTP_200_OK)
-
-
-class UserChatInviteAPI(APIView):
-
-    class InputSerializer(serializers.Serializer):
-        invite_id = serializers.IntegerField()
-        accept = serializers.BooleanField()
-
-    def post(self, request):
-        serializer = self.InputSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-
-        user_chat_invite(user_id=request.user.id, **serializer.validated_data)
-
-        return Response(status=status.HTTP_200_OK)
-
-
-class UserChatInviteListAPI(APIView):
-
-    class Pagination(LimitOffsetPagination):
-        max_limit = 100
-
-    class FilterSerializer(serializers.Serializer):
-        message_channel_id = serializers.IntegerField(required=False)
-        rejected = serializers.BooleanField(required=False, allow_null=True)
-        rejected__isnull = serializers.BooleanField(required=False, allow_null=True)
-
-    class OutputSerializer(serializers.Serializer):
-        id = serializers.IntegerField()
-        message_channel_name = serializers.CharField(source='message_channel.title')
-        message_channel_id = serializers.IntegerField()
-        message_channel_origin = serializers.CharField(source='message_channel.origin_name')
-        rejected = serializers.BooleanField(allow_null=True)
-
-    def get(self, request):
-        serializer = self.FilterSerializer(data=request.query_params)
-        serializer.is_valid(raise_exception=True)
-
-        qs = user_chat_invite_list(fetched_by=request.user, filters=serializer.validated_data)
-
-        return get_paginated_response(pagination_class=self.Pagination,
-                                      serializer_class=self.OutputSerializer,
-                                      queryset=qs,
-                                      request=self.request,
-                                      view=self)
-
-
-class UserChatChannelUpdateAPI(APIView):
-
-    class InputSerializer(serializers.Serializer):
-        channel_id = serializers.IntegerField()
-        title = serializers.CharField()
-
-    def post(self, request):
-        serializer = self.InputSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        user_chat_channel_update(user_id=request.user.id, **serializer.validated_data)
-
-        return Response(status=status.HTTP_200_OK)
 
 
 class UserLogoutAPI(APIView):

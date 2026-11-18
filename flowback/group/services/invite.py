@@ -29,8 +29,10 @@ def group_invite_accept(*, fetched_by: int, group: int, to: int = None) -> None:
         # Check if user is already a group user
         if group_user := get_object(GroupUser, raise_exception=False, user_id=to, group_id=group, active=False):
             group_user.active = True
+            group_user.save(update_fields=['active'])
         else:
             group_user = GroupUser(user_id=to, group_id=group)
+            group_user.save()
 
     else:
         invite = get_object(GroupUserInvite, 'User has not been invited', user_id=fetched_by, group_id=group,
@@ -39,11 +41,12 @@ def group_invite_accept(*, fetched_by: int, group: int, to: int = None) -> None:
         # Check if user is already a group user
         if group_user := get_object(GroupUser, raise_exception=False, user_id=fetched_by, group_id=group, active=False):
             group_user.active = True
+            group_user.save(update_fields=['active'])
         else:
             group_user = GroupUser(user_id=fetched_by, group_id=group)
+            group_user.save()
 
     # TODO fix group_user.full_clean()
-    group_user.save()
     invite.delete()
 
 

@@ -10,7 +10,8 @@ def get_paginated_response(*,
                            serializer_class = None,
                            queryset,
                            request,
-                           view):
+                           view,
+                           serializer_context: dict = None):
     paginator = pagination_class()
 
     page = paginator.paginate_queryset(queryset, request, view=view)
@@ -22,10 +23,10 @@ def get_paginated_response(*,
         serializer_class = view.OutputSerializer
 
     if page is not None:
-        serializer = serializer_class(page, many=True)
+        serializer = serializer_class(page, many=True, context=serializer_context or {})
         return paginator.get_paginated_response(serializer.data)
 
-    serializer = serializer_class(queryset, many=True)
+    serializer = serializer_class(queryset, many=True, context=serializer_context or {})
 
     return Response(data=serializer.data)
 

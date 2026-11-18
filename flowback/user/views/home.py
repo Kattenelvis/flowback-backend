@@ -29,6 +29,7 @@ class UserHomeFeedAPI(APIView):
         user_vote = serializers.BooleanField(required=False, allow_null=True, default=None)
         pinned = serializers.BooleanField(required=False, allow_null=True, default=None)
         group_ids = serializers.CharField(required=False)
+        is_archived = serializers.BooleanField(required=False, allow_null=True, default=None)
 
 
     class OutputSerializer(serializers.Serializer):
@@ -42,6 +43,7 @@ class UserHomeFeedAPI(APIView):
         title = serializers.CharField()
         description = serializers.CharField(allow_null=True, default=None)
         related_model = serializers.CharField()
+        is_archived = serializers.BooleanField()
         group_joined = serializers.BooleanField()
         user_vote = serializers.BooleanField(allow_null=True,
                                              default=None,

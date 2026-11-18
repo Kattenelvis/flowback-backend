@@ -1,7 +1,10 @@
 from drf_spectacular.utils import extend_schema
 from rest_framework.response import Response
-from rest_framework import status
-from flowback.group.services.kanban import group_kanban_entry_create, group_kanban_entry_update, group_kanban_entry_delete
+from rest_framework import serializers, status
+from flowback.group.services.kanban import (group_kanban_entry_create,
+                                           group_kanban_entry_update,
+                                           group_kanban_entry_delete,
+                                           group_kanban_entry_change_group)
 
 from flowback.kanban.views import KanbanEntryCreateAPI, KanbanEntryUpdateAPI, KanbanEntryDeleteAPI
 
@@ -39,3 +42,19 @@ class GroupKanbanEntryDeleteAPI(KanbanEntryDeleteAPI):
 
         group_kanban_entry_delete(group_id=group_id, fetched_by_id=request.user.id, **serializer.validated_data)
         return Response(status=status.HTTP_200_OK)
+
+
+@extend_schema(tags=['group/kanban'])
+class GroupKanbanChangeGroupAPI(KanbanEntryDeleteAPI, KanbanEntryCreateAPI):
+    class InputSerializer(serializers.Serializer):
+        entry_id = serializers.IntegerField()
+        target_group_id = serializers.IntegerField()
+
+    def post(self, request, group_id: int):
+        serializer = self.InputSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        kanban = group_kanban_entry_change_group(group_id=group_id,
+                                                 fetched_by_id=request.user.id,
+                                                 **serializer.validated_data)
+        return Response(status=status.HTTP_200_OK, data=kanban.id)

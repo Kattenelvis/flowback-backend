@@ -9,3 +9,10 @@ data
 general.log
 pytest.ini
 .vscode
+.venv
+venv
+node_modules
+__pycache__
+.pytest_cache
+.coverage
+coverage.xml

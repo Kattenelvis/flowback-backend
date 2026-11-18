@@ -1,18 +1,51 @@
-from asgiref.sync import async_to_sync
-from channels.layers import get_channel_layer
-from django.db import models
-from django.db.models.signals import post_delete, post_save
+from dataclasses import dataclass
 
-from backend.settings import TESTING
+from django.db import models
+
 from flowback.common.models import BaseModel
 from flowback.common.validators import FieldNotBlankValidator
 from flowback.files.models import FileCollection
 
 
+@dataclass(frozen=True)
+class ChannelPolicy:
+    """What the members of a kind of chat are allowed to do."""
+    # Membership follows the group or work group that owns the chat, so members can't join, leave or invite
+    # through the chat itself
+    managed: bool
+    can_leave: bool
+    can_rename: bool
+    can_invite: bool
+
+
 class MessageChannel(BaseModel):
-    origin_name = models.CharField(max_length=255, validators=[FieldNotBlankValidator])
+    class Kind(models.TextChoices):
+        USER = 'user', 'Direct message'
+        USER_GROUP = 'user_group', 'Group chat'
+        GROUP = 'group', 'Group'
+        WORKGROUP = 'workgroup', 'Work group'
+
+    POLICIES = {
+        Kind.USER: ChannelPolicy(managed=False, can_leave=False, can_rename=False, can_invite=False),
+        Kind.USER_GROUP: ChannelPolicy(managed=False, can_leave=True, can_rename=True, can_invite=True),
+        Kind.GROUP: ChannelPolicy(managed=True, can_leave=False, can_rename=False, can_invite=False),
+        Kind.WORKGROUP: ChannelPolicy(managed=True, can_leave=False, can_rename=False, can_invite=False),
+    }
+
+    kind = models.CharField(max_length=255, choices=Kind.choices)
     title = models.CharField(max_length=255, null=True, blank=True, validators=[FieldNotBlankValidator])
-    users = models.ManyToManyField('user.User', through='chat.MessageChannelParticipant')
+    # "<lowest user id>:<highest user id>" for direct messages, so each pair of users has at most one
+    dm_key = models.CharField(max_length=64, null=True, blank=True, unique=True)
+    users = models.ManyToManyField('user.User', through='chat.MessageChannelParticipant',
+                                   through_fields=('channel', 'user'))
+
+    @property
+    def policy(self) -> ChannelPolicy:
+        return self.POLICIES[self.Kind(self.kind)]
+
+    @staticmethod
+    def make_dm_key(user_id: int, other_user_id: int) -> str:
+        return ':'.join(str(i) for i in sorted([user_id, other_user_id]))
 
 
 # Allows for "channels" inside a group
@@ -23,16 +56,22 @@ class MessageChannelTopic(BaseModel):
 
 
 class MessageChannelParticipant(BaseModel):
+    """A user's membership of a chat. Only active members can read and send messages."""
+    class Status(models.TextChoices):
+        INVITED = 'invited', 'Invited'
+        ACTIVE = 'active', 'Active'
+        DECLINED = 'declined', 'Declined'
+        LEFT = 'left', 'Left'
+
     user = models.ForeignKey('user.User', on_delete=models.CASCADE)
     channel = models.ForeignKey(MessageChannel, on_delete=models.CASCADE)
-    closed_at = models.DateTimeField(null=True, blank=True)
-    timestamp = models.DateTimeField(auto_now=True)
-    active = models.BooleanField(default=True)
+    status = models.CharField(max_length=16, choices=Status.choices, default=Status.ACTIVE, db_index=True)
+    invited_by = models.ForeignKey('user.User', on_delete=models.SET_NULL, null=True, blank=True, related_name='+')
+    last_read_at = models.DateTimeField(null=True, blank=True)
 
     @property
-    def recent_message(self):
-        return self.channel.message_set.filter(active=True, type='message').order_by('-created_at').first()
-
+    def is_active(self) -> bool:
+        return self.status == self.Status.ACTIVE
 
     class Meta:
         unique_together = ('user', 'channel')
@@ -44,15 +83,24 @@ class MessageFileCollection(BaseModel):
     channel = models.ForeignKey(MessageChannel, on_delete=models.CASCADE)
     file_collection = models.ForeignKey(FileCollection, on_delete=models.CASCADE)
 
-    @property
-    def attachments_upload_to(self):
-        return 'message'
+    ATTACHMENTS_UPLOAD_TO = 'message'
 
 
 class Message(BaseModel):
+    class Type(models.TextChoices):
+        MESSAGE = 'message', 'Message'
+        INFO = 'info', 'Info'  # Written by the system, e.g. when someone joins
+
+    class Event(models.TextChoices):
+        JOINED = 'joined', 'Joined'
+        LEFT = 'left', 'Left'
+        RENAMED = 'renamed', 'Renamed'
+
     user = models.ForeignKey('user.User', on_delete=models.CASCADE)
     channel = models.ForeignKey(MessageChannel, on_delete=models.CASCADE)
-    type = models.CharField(max_length=255, default='message', validators=[FieldNotBlankValidator])
+    type = models.CharField(max_length=255, choices=Type.choices, default=Type.MESSAGE)
+    # What happened, for info messages
+    event = models.CharField(max_length=32, choices=Event.choices, null=True, blank=True)
     topic = models.ForeignKey(MessageChannelTopic, on_delete=models.CASCADE, null=True, blank=True)
     message = models.TextField(max_length=2000, validators=[FieldNotBlankValidator])
     attachments = models.ForeignKey(MessageFileCollection,
@@ -61,3 +109,6 @@ class Message(BaseModel):
                                     blank=True)  # TODO instead of MessageFileCollection, use FileCollection directly
     parent = models.ForeignKey('self', null=True, blank=True, on_delete=models.SET_NULL, related_name='message_parent')
     active = models.BooleanField(default=True)
+
+    class Meta:
+        indexes = [models.Index(fields=['channel', '-id'], name='chat_message_channel_id_idx')]

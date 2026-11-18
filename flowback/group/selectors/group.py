@@ -20,7 +20,7 @@ def group_list(*, fetched_by: User, filters=None):
                                 ).annotate(joined=Exists(joined_groups),
                                            pending_invite=Exists(pending_invite),
                                            pending_join=Exists(pending_join),
-                                           member_count=Count('groupuser')
+                                           member_count=Count('groupuser', filter=Q(groupuser__active=True))
                                            ).order_by('created_at').all()
     qs = BaseGroupFilter(filters, qs).qs
     return qs
@@ -50,4 +50,6 @@ def group_folder_list():
 
 def group_detail(*, fetched_by: User, group_id: int):
     group_user = group_user_permissions(user=fetched_by, group=group_id)
-    return Group.objects.annotate(member_count=Count('groupuser')).get(id=group_user.group.id)
+    return Group.objects.annotate(
+        member_count=Count('groupuser', filter=Q(groupuser__active=True))
+    ).get(id=group_user.group.id)

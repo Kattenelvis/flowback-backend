@@ -78,6 +78,12 @@ class ScheduleEventListAPI(APIView):
         end_date = serializers.DateTimeField(required=False)
         end_date__lt = serializers.DateTimeField(required=False)
         end_date__gt = serializers.DateTimeField(required=False)
+        window_start = serializers.DateTimeField(required=False,
+                                                 help_text='Only events that are not over before this time. '
+                                                           'Repeating events count as over once they stop repeating')
+        window_end = serializers.DateTimeField(required=False,
+                                               help_text='Only events that start before this time. For repeating '
+                                                         'events that is their first occurrence')
         tag = serializers.CharField(required=False)
         tag__icontains = serializers.CharField(required=False)
 
@@ -97,6 +103,8 @@ class ScheduleEventListAPI(APIView):
         active = serializers.BooleanField()
         meeting_link = serializers.CharField(allow_null=True)
         repeat_frequency = serializers.IntegerField(allow_null=True)
+        repeat_frequency_end_date = serializers.DateTimeField(allow_null=True)
+        timezone = serializers.CharField(help_text="IANA timezone the event keeps its time of day in when it repeats")
 
         tag_id = serializers.IntegerField(source='tag.id', allow_null=True)
         tag_name = serializers.CharField(source='tag.name', allow_null=True)
@@ -110,6 +118,9 @@ class ScheduleEventListAPI(APIView):
         user_tags = serializers.ListField(child=serializers.CharField(), allow_null=True)
         locked = serializers.BooleanField(allow_null=True)
         subscribed = serializers.BooleanField()
+        subscribed_occurrence = serializers.DateTimeField(allow_null=True,
+                                                          help_text="Start of the one occurrence the user follows, "
+                                                                    "null if they follow every occurrence")
 
     def get(self, request, *args, **kwargs):
         serializer = self.FilterSerializer(data=request.query_params)
@@ -193,6 +204,10 @@ class ScheduleEventSubscribeAPI(APIView):
                                             required=False,
                                             allow_null=True,
                                             max_length=10)
+        occurrence_start = serializers.DateTimeField(required=False,
+                                                     allow_null=True,
+                                                     help_text="Start of the one occurrence of a repeating event "
+                                                               "to follow, leave empty to follow every occurrence")
 
     def post(self, request, schedule_id: int):
         serializer = self.InputSerializer(data=request.data)
@@ -262,6 +277,10 @@ class ScheduleEventLazyCreateAPI(APIView):
         assignees = CharacterSeparatedField(child=serializers.IntegerField(), required=False)
         meeting_link = serializers.CharField(required=False, allow_blank=True)
         repeat_frequency = serializers.IntegerField(required=False, allow_null=True)
+        repeat_frequency_end_date = serializers.DateTimeField(required=False, allow_null=True)
+        timezone = serializers.CharField(required=False,
+                                         help_text="IANA timezone the event keeps its time of day in when it repeats, "
+                                                   "UTC by default")
 
     def post(self, request, *args, **kwargs):
         serializer = self.InputSerializer(data=request.data)
@@ -290,6 +309,8 @@ class ScheduleEventLazyUpdateAPI(APIView):
         assignees = CharacterSeparatedField(child=serializers.IntegerField(), required=False)
         meeting_link = serializers.CharField(required=False, allow_blank=True, allow_null=True)
         repeat_frequency = serializers.IntegerField(required=False, allow_null=True)
+        repeat_frequency_end_date = serializers.DateTimeField(required=False, allow_null=True)
+        timezone = serializers.CharField(required=False)
 
     def post(self, request, *args, **kwargs):
         serializer = self.InputSerializer(data=request.data)

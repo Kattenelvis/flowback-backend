@@ -69,6 +69,23 @@ class PollTest(APITestCase):
         self.assertEqual(response.data['results'][1]['total_proposals'], 12)
         self.assertEqual(response.data['results'][1]['total_predictions'], 15)
 
+    def test_list_polls_can_delete(self):
+        # poll_one belongs to the creator (admin), poll_two to user one, poll_three to user two
+        def can_delete(user):
+            response = generate_request(api=PollListApi, user=user)
+            return {poll['id']: poll['can_delete'] for poll in response.data['results']}
+
+        self.assertEqual({self.poll_one.id: True, self.poll_two.id: True, self.poll_three.id: True},
+                         can_delete(self.group_user_creator.user))
+
+        # The poll factory default phase isn't "waiting", so non-admin authors can't delete ongoing polls
+        self.assertEqual({self.poll_one.id: False, self.poll_two.id: False, self.poll_three.id: False},
+                         can_delete(self.group_user_one.user))
+
+        waiting = PollFactory(created_by=self.group_user_one, **generate_poll_phase_kwargs(poll_start_phase='waiting'))
+        self.assertTrue(can_delete(self.group_user_one.user)[waiting.id])
+        self.assertFalse(can_delete(self.group_user_two.user)[waiting.id])
+
     def test_list_polls_hide_users(self):
         self.group.hide_poll_users = True
         self.group.save()
@@ -218,7 +235,7 @@ class PollTest(APITestCase):
 
         response = view(request, group_id=self.group.id)  # Success
 
-        self.assertTrue(json.loads(response.rendered_content).get('detail')[0] == 'Schedule poll must be dynamic',
+        self.assertTrue(json.loads(response.rendered_content).get('detail') == 'Schedule poll must be dynamic',
                         json.loads(response.rendered_content))
 
     def test_update_poll(self):
